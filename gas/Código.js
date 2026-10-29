@@ -8,6 +8,7 @@
  * Hojas INSUMOS:  INS_CATALOGO · INS_ENTREGAS · INS_MOVIMIENTOS · INS_RESUMEN · INS_HISTORICO
  * Compartidas:    PERSONAL · AREAS
  *
+ * v5.1: botón Ver PDF / Compartir: el PDF se descarga al celular desde la app (sin pedir acceso a Drive).
  * v5: la pantalla vive solo en GitHub Pages (doGet redirige) y acceso por usuario (RUT + PIN personal, hoja USUARIOS).
  * v4: alta de trabajadores desde la app (RUT escaneado de la cédula o digitado),
  *     asignar RUT a trabajadores que solo tenían nombre, y PDF PENDIENTE + regeneración
@@ -64,7 +65,8 @@ function api_() {
   return {
     getDatos: getDatos, registrarEntrega: registrarEntrega, registrarInsumos: registrarInsumos,
     consumoInsumos: consumoInsumos, ingresarStock: ingresarStock, ajustarStock: ajustarStock, etiquetasPdf: etiquetasPdf,
-    crearTrabajador: crearTrabajador, asignarRut: asignarRut, cambiarPin: cambiarPin, cerrarSesion: cerrarSesion
+    crearTrabajador: crearTrabajador, asignarRut: asignarRut, cambiarPin: cambiarPin, cerrarSesion: cerrarSesion,
+    obtenerPdf: obtenerPdf
   };
 }
 
@@ -217,6 +219,24 @@ function cambiarPin(p) {
   props.setProperty('SES_' + USR.token, JSON.stringify(s));
   CacheService.getScriptCache().remove('fallos_' + normRut_(u.rut));
   return { ok: true };
+}
+
+/** Devuelve el PDF de una entrega para verlo o compartirlo en el celular, sin pedir acceso a Drive.
+ *  El original sigue guardado y privado en el Drive de la cuenta dueña del script. */
+function obtenerPdf(folio) {
+  folio = String(folio || '').trim();
+  if (!folio) throw new Error('Falta el folio.');
+  const v = hoja_('ENT').getDataRange().getValues();
+  for (let i = v.length - 1; i >= 1; i--) {
+    if (String(v[i][0]).trim() !== folio) continue;
+    const url = String(v[i][14]).trim();
+    if (url === CFG.PDF_PENDIENTE) throw new Error('El PDF de ' + folio + ' está pendiente. Regenéralo desde el menú de la planilla.');
+    const m = url.match(/[-\w]{25,}/);
+    if (!m) throw new Error('No se encontró el PDF de ' + folio + '.');
+    const f = DriveApp.getFileById(m[0]);
+    return { nombre: f.getName(), b64: Utilities.base64Encode(f.getBlob().getBytes()) };
+  }
+  throw new Error('Folio no encontrado: ' + folio);
 }
 
 function cerrarSesion() {

@@ -152,7 +152,7 @@ var API_URL = 'https://script.google.com/macros/s/AKfycbx21GkRzYnnBNyLddiAas4wyW
 </style>
 </head>
 <body>
-<header><h1 id="titulo">Entrega de EPP</h1><small>MITT SpA · Finning DMH · <span id="ver">v5</span></small>
+<header><h1 id="titulo">Entrega de EPP</h1><small>MITT SpA · Finning DMH · <span id="ver">v5.1</span></small>
   <div class="usr" id="usr"></div>
   <div class="modsw"><button id="swEpp" class="on" onclick="setMod('epp')">🦺 EPP</button><button id="swIns" onclick="setMod('ins')">🧴 Insumos</button></div>
 </header>
@@ -239,7 +239,13 @@ var API_URL = 'https://script.google.com/macros/s/AKfycbx21GkRzYnnBNyLddiAas4wyW
       <div class="big">✔</div>
       <h2 id="rFolio" style="font-size:20px"></h2>
       <p id="rTxt" style="color:var(--mut)"></p>
-      <a id="rPdf" class="btn full solo-epp" target="_blank" href="#">Ver PDF</a>
+      <div id="rPdfBox" class="solo-epp">
+        <div class="row">
+          <button class="btn" id="rVer" onclick="verPdf()" disabled>📄 Ver PDF</button>
+          <button class="btn sec" id="rCompartir" style="display:none" onclick="compartirPdf()">📤 Compartir</button>
+        </div>
+        <small id="rPdfEst" style="color:var(--mut);display:block;margin-top:6px"></small>
+      </div>
       <div id="rAlertas"></div>
       <button class="btn sec full" style="margin-top:10px" onclick="nuevaEntrega()">Nueva entrega</button>
     </div>
@@ -644,7 +650,7 @@ function registrar(){
     $('#resultado').style.display = 'block';
     $('#rFolio').innerHTML = 'Entrega registrada<br>' + h(r.folio);
     $('#rTxt').textContent = trab.nombre + ' · ' + items.reduce(function(a, b){ return a + b.cant; }, 0) + ' EPP';
-    if (r.url) { $('#rPdf').href = r.url; $('#rPdf').style.display = ''; } else $('#rPdf').style.display = 'none';
+    if (r.url) { $('#rPdfBox').style.display = ''; prepararPdf(r.folio); } else $('#rPdfBox').style.display = 'none';
     $('#rAlertas').innerHTML =
       (r.pdfPendiente ? '<div class="alerta"><b>PDF pendiente.</b> La entrega quedó registrada con folio ' + h(r.folio) +
         ', pero el PDF no se pudo generar. En la planilla: menú <b>EPP / Insumos → Regenerar PDF pendientes</b>. No registres esta entrega de nuevo.</div>' : '') +
@@ -711,10 +717,42 @@ function renderConsumo(r){
   $('#cIns').innerHTML = tablaCons(r.porInsumo);
   $('#cArea').innerHTML = r.porArea.length ? r.porArea.map(function(a){ return '<h3 class="area">' + h(a.area) + '</h3>' + tablaCons(a.items); }).join('') : '<div class="vacio">Sin entregas en el mes</div>';
 }
+/* ---------- PDF de la entrega (se baja desde la app, sin pedir acceso a Drive) ---------- */
+var PDF = null, PDF_FOLIO = '';
+function prepararPdf(folio){
+  PDF = null; PDF_FOLIO = folio;
+  $('#rVer').disabled = true; $('#rCompartir').style.display = 'none'; $('#rPdfEst').textContent = 'Preparando PDF…';
+  google.script.run.withSuccessHandler(function(r){
+    if (folio !== PDF_FOLIO) return;
+    var bin = atob(r.b64), arr = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+    PDF = {folio: folio, nombre: r.nombre, blob: new Blob([arr], {type: 'application/pdf'})};
+    $('#rVer').disabled = false; $('#rPdfEst').textContent = '';
+    try {
+      if (navigator.canShare && navigator.canShare({files: [new File([PDF.blob], PDF.nombre, {type: 'application/pdf'})]})) $('#rCompartir').style.display = '';
+    } catch(e){}
+  }).withFailureHandler(function(e){
+    if (folio !== PDF_FOLIO) return;
+    $('#rVer').disabled = false; $('#rPdfEst').textContent = e.message + ' Toca "Ver PDF" para reintentar.';
+  }).obtenerPdf(folio);
+}
+function verPdf(){
+  if (!PDF) { if (PDF_FOLIO) prepararPdf(PDF_FOLIO); return; }
+  var url = URL.createObjectURL(PDF.blob);
+  var a = document.createElement('a'); a.href = url; a.download = PDF.nombre;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(function(){ URL.revokeObjectURL(url); }, 60000);
+  toast('PDF descargado: ábrelo desde la notificación o Descargas', 'ok');
+}
+function compartirPdf(){
+  if (!PDF) return;
+  var f = new File([PDF.blob], PDF.nombre, {type: 'application/pdf'});
+  navigator.share({files: [f], title: 'Entrega EPP ' + PDF.folio}).catch(function(){});
+}
 function nuevaEntrega(){
   trab = null; items = []; $('#obs').value = ''; $('#motivo').selectedIndex = 0;
   $('#resultado').style.display = 'none'; $('#formEntrega').style.display = 'block'; $('.fix').style.display = 'block';
-  $('#rPdf').style.display = ''; $('#trabNuevo').style.display = 'none';
+  $('#rPdfBox').style.display = ''; PDF = null; PDF_FOLIO = ''; $('#trabNuevo').style.display = 'none';
   renderTrab(); renderItems(); firmado = false; ajustarFirma(); window.scrollTo(0, 0);
 }
 
