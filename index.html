@@ -12,8 +12,7 @@
 <title>EPP MITT</title>
 <script>
 /* ============ CONFIGURACIÓN ============
- * https://script.google.com/macros/s/AKfycbx21GkRzYnnBNyLddiAas4wyWlZgQ2t4OrBCVQsIO7Z3NlRkUDGxG0KQaCPX5WUCr2zHw/exec
-
+ * Pega aquí la URL de tu implementación de Apps Script (termina en /exec).
  */
 var API_URL = 'https://script.google.com/macros/s/AKfycbx21GkRzYnnBNyLddiAas4wyWlZgQ2t4OrBCVQsIO7Z3NlRkUDGxG0KQaCPX5WUCr2zHw/exec';
 
@@ -532,7 +531,7 @@ function nuevaEntrega(){
 
 /* ---------- Escáner ---------- */
 function abrirScanner(modo){
-  scanMode = modo; lastCode = ''; renderScanList();
+  scanMode = modo; lastCode = ''; scanListo = false; renderScanList();
   $('#camErr').style.display = 'none'; $('#mScan').classList.add('on');
   try {
     qr = new Html5Qrcode('reader', {experimentalFeatures: {useBarCodeDetectorIfSupported: true}});
@@ -540,17 +539,22 @@ function abrirScanner(modo){
       onScan, function(){}).catch(function(){ $('#camErr').style.display = 'block'; });
   } catch(e) { $('#camErr').style.display = 'block'; }
 }
+var scanListo = false;
 function onScan(txt){
+  if (scanListo) return;            // la cámara manda varias lecturas por segundo: solo vale la primera
   txt = String(txt).trim();
   var now = Date.now();
   // Mientras el mismo código siga en cámara no se vuelve a contar; para sumar otra unidad, sácalo del cuadro y vuelve a apuntar (o usa +).
   if (txt === lastCode && now - lastT < 1500) { lastT = now; return; }
   lastCode = txt; lastT = now;
-  if (scanMode === 'entrega') { agregar(txt); }
+  if (scanMode === 'entrega') {
+    if (!buscarCod(txt)) return noReg(txt);   // código desconocido: avisa y sigue escaneando
+    scanListo = true; agregar(txt); cerrarScanner();
+  }
   else {
     var e = buscarCod(txt);
     if (!e) return noReg(txt);
-    stockItem = e; renderStockSel(); vibrar(); cerrarScanner();
+    scanListo = true; stockItem = e; renderStockSel(); vibrar(); cerrarScanner();
   }
 }
 function cerrarScanner(){
@@ -664,11 +668,11 @@ function generarEtiquetas(){
 $('#entregador').value = ls('epp_entregador');
 $('#sResp').value = ls('epp_entregador');
 renderTrab(); renderItems(); ajustarFirma();
+over(true, 'Cargando datos…');
 google.script.run.withSuccessHandler(function(d){
   DB = d; over(false); renderAreas(); renderStock(); renderEtiq(); renderItems();
   if (ls('epp_mod') === 'ins') setMod('ins');
 }).withFailureHandler(function(e){ over(false); toast(e.message, 'err'); }).getDatos();
-over(true, 'Cargando datos…');
 </script>
 </body>
 </html>
