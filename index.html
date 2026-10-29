@@ -44,7 +44,11 @@ var API_URL = 'https://script.google.com/macros/s/AKfycbx21GkRzYnnBNyLddiAas4wyW
     return px;
   }
   window.google = {script: {get run(){ return runner(); }}};
-  if ('serviceWorker' in navigator) window.addEventListener('load', function(){ navigator.serviceWorker.register('sw.js').catch(function(){}); });
+  if ('serviceWorker' in navigator) window.addEventListener('load', function(){
+    navigator.serviceWorker.register('sw.js', {updateViaCache: 'none'}).then(function(r){ r.update(); }).catch(function(){});
+    var recargado = false;
+    navigator.serviceWorker.addEventListener('controllerchange', function(){ if (!recargado) { recargado = true; location.reload(); } });
+  });
 })();
 </script>
 
@@ -136,7 +140,7 @@ var API_URL = 'https://script.google.com/macros/s/AKfycbx21GkRzYnnBNyLddiAas4wyW
 </style>
 </head>
 <body>
-<header><h1 id="titulo">Entrega de EPP</h1><small>MITT SpA · Finning DMH</small>
+<header><h1 id="titulo">Entrega de EPP</h1><small>MITT SpA · Finning DMH · <span id="ver">v3</span></small>
   <div class="modsw"><button id="swEpp" class="on" onclick="setMod('epp')">🦺 EPP</button><button id="swIns" onclick="setMod('ins')">🧴 Insumos</button></div>
 </header>
 <nav>
