@@ -1,5 +1,5 @@
 /**
- * ENTREGA DE EPP E INSUMOS – MITT SpA  (v4)
+ * ENTREGA DE EPP E INSUMOS – MITT SpA  (v5)
  * Web app para celular con dos módulos separados:
  *  - EPP: escaneo QR, firma del trabajador, PDF para auditoría, control de stock.
  *  - INSUMOS: entrega por trabajador y área, sin firma, control de stock y reporte de consumo mensual.
