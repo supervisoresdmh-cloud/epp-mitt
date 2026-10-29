@@ -236,7 +236,7 @@ var API_URL = 'https://script.google.com/macros/s/AKfycbx21GkRzYnnBNyLddiAas4wyW
 <header>
   <div class="barra-in">
     <div class="marca"><span class="placa">MITT</span><span id="titulo">Entrega de EPP</span></div>
-    <small class="ver"><span class="faena">Finning DMH · </span><span id="ver">v5.3</span></small>
+    <small class="ver"><span class="faena">Finning DMH · </span><span id="ver">v5.4</span></small>
   </div>
   <div class="usr" id="usr"></div>
   <div class="modsw"><button id="swEpp" class="on" onclick="setMod('epp')">EPP</button><button id="swIns" onclick="setMod('ins')">Insumos</button></div>
@@ -388,7 +388,10 @@ var API_URL = 'https://script.google.com/macros/s/AKfycbx21GkRzYnnBNyLddiAas4wyW
       </div>
       <div id="listaEtiq"></div>
       <button class="btn ok full" style="margin-top:12px" onclick="generarEtiquetas()">Generar PDF de etiquetas</button>
-      <a id="etiqLink" class="btn sec full" style="margin-top:8px;display:none" target="_blank" href="#">Abrir PDF de etiquetas</a>
+      <div id="etiqBox" class="row" style="margin-top:8px;display:none">
+        <button class="btn" onclick="descargarEtiq()">📄 Descargar PDF</button>
+        <button class="btn sec" id="etiqComp" style="display:none" onclick="compartirEtiq()">📤 Compartir</button>
+      </div>
     </div>
   </section>
   <!-- ================= CONSUMO (solo insumos) ================= -->
@@ -985,11 +988,37 @@ function generarEtiquetas(){
     sel.push({codigo: e.codigo, epp: e.epp, talla: e.talla, pres: e.pres, copias: el.querySelector('[type=number]').value, tipo: tipo, img: tipo === 'barra' ? '' : qrUrl(e.codigo), bar: tipo === 'qr' ? '' : barUrl(e.codigo)});
   });
   if (!sel.length) return toast('Marca al menos un ítem', 'err');
+  ETIQ = null; $('#etiqBox').style.display = 'none';
   over(true, 'Generando etiquetas…');
-  google.script.run.withSuccessHandler(function(url){
-    over(false); var a = $('#etiqLink'); a.href = url; a.style.display = 'flex'; toast('PDF de etiquetas creado', 'ok');
+  google.script.run.withSuccessHandler(function(r){
+    over(false);
+    ETIQ = {nombre: r.nombre, blob: b64Blob(r.b64)};
+    $('#etiqBox').style.display = 'flex';
+    $('#etiqComp').style.display = puedeCompartir(ETIQ) ? '' : 'none';
+    toast('PDF de etiquetas listo', 'ok');
   }).withFailureHandler(function(e){ over(false); toast(e.message, 'err'); }).etiquetasPdf(sel, MOD);
 }
+/* PDF descargable desde la app (sin pasar por Drive) */
+var ETIQ = null;
+function b64Blob(b64){
+  var bin = atob(b64), arr = new Uint8Array(bin.length);
+  for (var i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+  return new Blob([arr], {type: 'application/pdf'});
+}
+function puedeCompartir(o){
+  try { return !!(navigator.canShare && navigator.canShare({files: [new File([o.blob], o.nombre, {type: 'application/pdf'})]})); } catch(e){ return false; }
+}
+function descargar(o){
+  var url = URL.createObjectURL(o.blob), a = document.createElement('a');
+  a.href = url; a.download = o.nombre; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(function(){ URL.revokeObjectURL(url); }, 60000);
+  toast('PDF descargado: ábrelo desde la notificación o Descargas', 'ok');
+}
+function compartir(o, titulo){
+  navigator.share({files: [new File([o.blob], o.nombre, {type: 'application/pdf'})], title: titulo}).catch(function(){});
+}
+function descargarEtiq(){ if (ETIQ) descargar(ETIQ); }
+function compartirEtiq(){ if (ETIQ) compartir(ETIQ, 'Etiquetas EPP MITT'); }
 
 /* ---------- Acceso por usuario ---------- */
 function mostrarLogin(){

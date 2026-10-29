@@ -1,6 +1,6 @@
 // Service worker: permite instalar la app. Siempre busca la versión más nueva en internet
 // (sin caché del navegador) y solo usa la copia guardada si no hay señal.
-const CACHE = 'epp-mitt-v5-3';
+const CACHE = 'epp-mitt-v5-4';
 const BASE = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(BASE.map(u => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting()));

@@ -8,6 +8,7 @@
  * Hojas INSUMOS:  INS_CATALOGO · INS_ENTREGAS · INS_MOVIMIENTOS · INS_RESUMEN · INS_HISTORICO
  * Compartidas:    PERSONAL · AREAS
  *
+ * v5.4: etiquetas: el PDF se descarga/comparte desde la app (sin pedir acceso a Drive).
  * v5.1: botón Ver PDF / Compartir: el PDF se descarga al celular desde la app (sin pedir acceso a Drive).
  * v5: la pantalla vive solo en GitHub Pages (doGet redirige) y acceso por usuario (RUT + PIN personal, hoja USUARIOS).
  * v4: alta de trabajadores desde la app (RUT escaneado de la cédula o digitado),
@@ -980,5 +981,7 @@ function etiquetasPdf(lista, mod) {
   const ts = Utilities.formatDate(new Date(), CFG.TZ, 'yyyy-MM-dd_HHmm');
   const pref = mod === 'ins' ? 'Etiquetas_INSUMOS_' : 'Etiquetas_EPP_';
   const blob = Utilities.newBlob(html, 'text/html', 'etiquetas.html').getAs('application/pdf').setName(pref + ts + '.pdf');
-  return subcarpeta_(carpeta_(), 'Etiquetas').createFile(blob).getUrl();
+  const f = subcarpeta_(carpeta_(), 'Etiquetas').createFile(blob);
+  // Se devuelve también el PDF para descargarlo en el celular sin pedir acceso a Drive.
+  return { url: f.getUrl(), nombre: f.getName(), b64: Utilities.base64Encode(blob.getBytes()) };
 }
