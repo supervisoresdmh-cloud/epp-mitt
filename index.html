@@ -18,18 +18,20 @@ var API_URL = 'https://script.google.com/macros/s/AKfycbx21GkRzYnnBNyLddiAas4wyW
 
 /* Puente: imita google.script.run, pero llama a la Sheet por internet. */
 (function(){
-  function getPin(){ try { return localStorage.getItem('epp_pin') || ''; } catch(e){ return ''; } }
-  function setPin(v){ try { localStorage.setItem('epp_pin', v); } catch(e){} }
-  function pedirPin(msg){ var p = prompt(msg || 'Ingresa el PIN de la app'); if (p) setPin(p.trim()); return p ? p.trim() : ''; }
-  function llamar(fn, args, ok, fail, intento){
+  function token(){ try { return localStorage.getItem('epp_token') || ''; } catch(e){ return ''; } }
+  try { localStorage.removeItem('epp_pin'); } catch(e){}   // PIN general antiguo: ya no se usa
+  function llamar(fn, args, ok, fail){
     if (API_URL.indexOf('PEGA_AQUI') === 0) { fail && fail({message: 'Falta configurar API_URL en index.html'}); return; }
-    var pin = getPin() || pedirPin();
-    fetch(API_URL, {method: 'POST', headers: {'Content-Type': 'text/plain;charset=utf-8'}, body: JSON.stringify({fn: fn, args: args, pin: pin})})
+    fetch(API_URL, {method: 'POST', headers: {'Content-Type': 'text/plain;charset=utf-8'}, body: JSON.stringify({fn: fn, args: args, token: token()})})
       .then(function(r){ return r.json(); })
       .then(function(j){
         if (j.ok) { ok && ok(j.data); return; }
-        if (j.error === 'PIN' && (intento || 0) < 2) { setPin(''); pedirPin('PIN incorrecto. Ingrésalo de nuevo'); return llamar(fn, args, ok, fail, (intento || 0) + 1); }
-        fail && fail({message: j.error === 'PIN' ? 'PIN incorrecto' : j.error});
+        if (j.error === 'SESION' || j.error === 'CAMBIO_PIN') {
+          window.sesionInvalida && window.sesionInvalida(j.error);
+          fail && fail({message: j.error === 'SESION' ? 'Tu sesión terminó. Ingresa de nuevo.' : 'Primero crea tu PIN personal.'});
+          return;
+        }
+        fail && fail({message: j.error});
       })
       .catch(function(){ fail && fail({message: 'Sin conexión con la planilla. Revisa tu señal e intenta de nuevo.'}); });
   }
@@ -83,6 +85,7 @@ var API_URL = 'https://script.google.com/macros/s/AKfycbx21GkRzYnnBNyLddiAas4wyW
   .res div:last-child{border-bottom:0}
   .res div:active{background:#eaf1f9}
   .res small{color:var(--mut)}
+  .res div[data-n]{background:#eef8f1;color:var(--ok)}
   .sel{background:#eaf1f9;border:1px solid #bcd0e6;border-radius:8px;padding:10px;display:flex;justify-content:space-between;align-items:center;gap:8px}
   .sel b{display:block}
   .x{background:none;border:0;color:var(--err);font-size:22px;padding:0 6px}
@@ -137,10 +140,20 @@ var API_URL = 'https://script.google.com/macros/s/AKfycbx21GkRzYnnBNyLddiAas4wyW
   .tab{display:none} .tab.on{display:block}
   .fix{position:fixed;left:0;right:0;bottom:0;padding:10px 12px;background:#fff;box-shadow:0 -2px 8px rgba(0,0,0,.1);z-index:6}
   .fix .btn{max-width:640px;margin:0 auto;display:flex}
+  .modal{z-index:28}
+  .auth{position:fixed;inset:0;background:var(--bg);z-index:25;display:none;overflow:auto}
+  .auth.on{display:block}
+  .authbox{max-width:420px;margin:0 auto;padding:36px 18px}
+  .authbox h1{color:var(--az);text-align:center;margin:0 0 4px;font-size:24px}
+  .authbox p{color:var(--mut);text-align:center;font-size:14px;margin:4px 0 14px}
+  .usr{font-size:13px;margin-top:4px;opacity:.95}
+  .usr a{color:#fff;text-decoration:underline;margin-left:10px;cursor:pointer}
+  input[readonly]{background:#eef1f4;color:var(--mut)}
 </style>
 </head>
 <body>
-<header><h1 id="titulo">Entrega de EPP</h1><small>MITT SpA · Finning DMH · <span id="ver">v3</span></small>
+<header><h1 id="titulo">Entrega de EPP</h1><small>MITT SpA · Finning DMH · <span id="ver">v5</span></small>
+  <div class="usr" id="usr"></div>
   <div class="modsw"><button id="swEpp" class="on" onclick="setMod('epp')">🦺 EPP</button><button id="swIns" onclick="setMod('ins')">🧴 Insumos</button></div>
 </header>
 <nav>
@@ -161,8 +174,27 @@ var API_URL = 'https://script.google.com/macros/s/AKfycbx21GkRzYnnBNyLddiAas4wyW
         </div>
         <div id="trabSel"></div>
         <div id="trabBus">
-          <input id="qTrab" placeholder="Buscar por nombre o RUT" autocomplete="off">
+          <div class="row">
+            <input id="qTrab" placeholder="Nombre o RUT" autocomplete="off" enterkeyhint="search">
+            <button class="btn" style="flex:none" onclick="abrirScanner('cred')" title="Escanear cédula o credencial">🪪 Escanear</button>
+          </div>
           <div id="resTrab" class="res" style="display:none"></div>
+        </div>
+        <div id="trabNuevo" style="display:none">
+          <div class="alerta" style="margin-top:0">No está en la nómina. Completa los datos y quedará registrado en la hoja PERSONAL.</div>
+          <label>RUT</label>
+          <div class="row"><input id="tnRut" placeholder="12345678-9" autocomplete="off"><button class="btn sec" style="flex:none" onclick="abrirScanner('cred')">🪪</button></div>
+          <label>Nombre completo</label>
+          <input id="tnNom" placeholder="Nombres y apellidos" autocomplete="off">
+          <label>Cargo</label>
+          <input id="tnCargo" list="dlCargos" autocomplete="off">
+          <label>Turno</label>
+          <input id="tnTurno" list="dlTurnos" autocomplete="off">
+          <datalist id="dlCargos"></datalist><datalist id="dlTurnos"></datalist>
+          <div class="row" style="margin-top:12px">
+            <button class="btn sec" onclick="cancelarNuevo()">Cancelar</button>
+            <button class="btn ok" onclick="guardarNuevo()">Registrar trabajador</button>
+          </div>
         </div>
       </div>
 
@@ -189,7 +221,7 @@ var API_URL = 'https://script.google.com/macros/s/AKfycbx21GkRzYnnBNyLddiAas4wyW
         <label>Observación (opcional)</label>
         <textarea id="obs"></textarea>
         <label>Entregado por</label>
-        <input id="entregador" placeholder="Nombre de quien entrega">
+        <input id="entregador" readonly title="Usuario que inició sesión">
       </div>
 
       <div class="card solo-epp">
@@ -237,7 +269,7 @@ var API_URL = 'https://script.google.com/macros/s/AKfycbx21GkRzYnnBNyLddiAas4wyW
         <option>Otro (detallar en observación)</option>
       </select></div>
       <label>Responsable</label>
-      <input id="sResp">
+      <input id="sResp" readonly title="Usuario que inició sesión">
       <label>Observación</label>
       <input id="sObs">
       <button class="btn ok full" id="btnStock" style="margin-top:12px" onclick="guardarStock()">Registrar ingreso</button>
@@ -283,6 +315,7 @@ var API_URL = 'https://script.google.com/macros/s/AKfycbx21GkRzYnnBNyLddiAas4wyW
 
 <!-- Escáner -->
 <div class="modal" id="mScan">
+  <p id="scanTit" style="margin:0 0 8px;font-weight:600;opacity:1"></p>
   <div id="reader"></div>
   <p id="camErr" style="display:none;color:#ffb3a7">No se pudo abrir la cámara en vivo. Usa “Tomar foto del código”.</p>
   <div id="scanList"></div>
@@ -295,6 +328,34 @@ var API_URL = 'https://script.google.com/macros/s/AKfycbx21GkRzYnnBNyLddiAas4wyW
   <div id="fileReader" style="display:none"></div>
 </div>
 
+<!-- Acceso: RUT + PIN personal -->
+<div class="auth" id="auth">
+  <div class="authbox">
+    <h1>🦺 EPP · MITT</h1>
+    <div id="lgForm">
+      <p>Ingresa con tu RUT y tu PIN</p>
+      <label>RUT</label>
+      <div class="row"><input id="lgRut" placeholder="12345678-9" autocomplete="username"><button class="btn sec" style="flex:none" onclick="abrirScanner('login')" title="Escanear credencial">🪪</button></div>
+      <label>PIN</label>
+      <input id="lgPin" type="password" inputmode="numeric" maxlength="8" autocomplete="current-password">
+      <button class="btn ok full" style="margin-top:16px" onclick="ingresar()">Ingresar</button>
+      <p style="margin-top:16px">¿Primera vez o no tienes PIN? Pide al supervisor a cargo que te registre en la hoja USUARIOS.</p>
+    </div>
+    <div id="cpForm" style="display:none">
+      <p id="cpTxt"></p>
+      <label>PIN actual</label>
+      <input id="cpAct" type="password" inputmode="numeric" maxlength="8" autocomplete="current-password">
+      <label>Nuevo PIN (4 a 8 números)</label>
+      <input id="cpNue" type="password" inputmode="numeric" maxlength="8" autocomplete="new-password">
+      <label>Confirmar nuevo PIN</label>
+      <input id="cpCon" type="password" inputmode="numeric" maxlength="8" autocomplete="new-password">
+      <button class="btn ok full" style="margin-top:16px" onclick="guardarPin()">Guardar PIN</button>
+      <button class="btn sec full" id="cpCancel" style="margin-top:8px" onclick="cancelarCambio()">Cancelar</button>
+      <button class="btn sec full" id="cpSalir" style="margin-top:8px" onclick="salir(true)">Salir</button>
+    </div>
+  </div>
+</div>
+
 <div class="over" id="over"><div class="spin"></div><div id="overTxt">Cargando…</div></div>
 <div id="toast"></div>
 
@@ -305,11 +366,13 @@ function CAT(){ return (MOD === 'ins' ? DB.insumos : DB.catalogo) || []; }
 function otroCat(){ return (MOD === 'ins' ? DB.catalogo : DB.insumos) || []; }
 var trab = null, items = [], stockItem = null, firmado = false;
 var scanMode = 'entrega', qr = null, lastCode = '', lastT = 0;
+var origenRut = 'digitado';
+var ESPERA_MAX = 120000;   // si el servidor no responde en 2 min, se libera la pantalla
 
 function $(s){ return document.querySelector(s); }
-function norm(s){ return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[.\-\s]/g, ''); }
+function norm(s){ return String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[.\-\s]/g, ''); }
 function h(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
-function toast(msg, tipo){ var t = $('#toast'); t.textContent = msg; t.className = tipo || ''; t.style.display = 'block'; clearTimeout(t._t); t._t = setTimeout(function(){ t.style.display = 'none'; }, 2600); }
+function toast(msg, tipo){ var t = $('#toast'); t.textContent = msg; t.className = tipo || ''; t.style.display = 'block'; clearTimeout(t._t); t._t = setTimeout(function(){ t.style.display = 'none'; }, 3200); }
 function over(on, txt){ $('#over').classList.toggle('on', on); if (txt) $('#overTxt').textContent = txt; }
 function ls(k, v){ try { if (v === undefined) return localStorage.getItem(k) || ''; localStorage.setItem(k, v); } catch(e){ return ''; } }
 function vibrar(){ try { navigator.vibrate && navigator.vibrate(80); } catch(e){} }
@@ -318,6 +381,31 @@ function buscarCod(c){ c = String(c || '').trim().toUpperCase(); return CAT().fi
 function codOtroModulo(c){ c = String(c || '').trim().toUpperCase(); return otroCat().some(function(x){ return x.codigo === c; }); }
 function noReg(c){ toast(codOtroModulo(c) ? 'Ese código es de ' + (MOD === 'ins' ? 'EPP' : 'Insumos') + '. Cambia de módulo arriba.' : 'Código no registrado: ' + c, 'err'); }
 var NOMBRE = {epp: 'EPP', ins: 'insumos'};
+
+/* ---------- RUT ---------- */
+function normR(s){ return String(s || '').replace(/[^0-9kK]/g, '').toUpperCase(); }
+function fmtR(s){ var r = normR(s); return r.length < 2 ? r : r.slice(0, -1) + '-' + r.slice(-1); }
+function rutOk(s){
+  var r = normR(s); if (r.length < 8 || r.length > 9) return false;
+  var c = r.slice(0, -1), dv = r.slice(-1); if (!/^\d+$/.test(c)) return false;
+  var sm = 0, m = 2;
+  for (var i = c.length - 1; i >= 0; i--) { sm += +c[i] * m; m = m === 7 ? 2 : m + 1; }
+  var res = 11 - sm % 11;
+  return dv === (res === 11 ? '0' : res === 10 ? 'K' : String(res));
+}
+/** Saca el RUT de lo que lea la cámara: QR de cédula nueva (…RUN=12345678-9…), PDF417 de cédula antigua, o un RUT impreso en una credencial. */
+function rutDeCodigo(t){
+  t = String(t || '');
+  var m = t.match(/RUN=([0-9.]+-?[0-9kK])/i);
+  if (m && rutOk(m[1])) return fmtR(m[1]);
+  var p = t.replace(/^\s+/, '').slice(0, 9).replace(/\s/g, '');
+  if (/^\d{7,8}[\dkK]$/.test(p) && rutOk(p)) return fmtR(p);
+  var g = t.match(/\d{1,2}\.?\d{3}\.?\d{3}\s*-\s*[\dkK]/g) || [];
+  for (var i = 0; i < g.length; i++) if (rutOk(g[i])) return fmtR(g[i]);
+  if (/^\s*\d{7,8}[\dkK]\s*$/.test(t) && rutOk(t)) return fmtR(t);
+  return '';
+}
+function porRut(r){ var n = normR(r); return (DB.personal || []).find(function(x){ return x.rut && normR(x.rut) === n; }); }
 
 /* ---------- Módulo EPP / Insumos ---------- */
 function setMod(m){
@@ -379,17 +467,98 @@ var fmtEpp = {
   key: function(x){ return x.epp + ' ' + x.talla + ' ' + x.codigo; },
   html: function(x){ return '<b>' + h(eppTxt(x)) + '</b><br><small>' + h(x.codigo) + ' · stock ' + x.stock + '</small>'; }
 };
-buscador('#qTrab', '#resTrab', function(){ return DB.personal; }, {
-  key: function(x){ return x.nombre + ' ' + x.rut; },
-  html: function(x){ return '<b>' + h(x.nombre) + '</b><br><small>' + h(x.rut) + ' · ' + h(x.cargo) + '</small>'; }
-}, function(t){ trab = t; renderTrab(); });
 buscador('#qEpp', '#resEpp', CAT, fmtEpp, function(e){ agregar(e.codigo); });
 buscador('#qStock', '#resStock', CAT, fmtEpp, function(e){ stockItem = e; renderStockSel(); });
 
+/* ---------- Trabajador: buscar, escanear cédula, registrar nuevo ---------- */
+$('#qTrab').addEventListener('input', buscarTrab);
+$('#qTrab').addEventListener('keydown', function(ev){
+  if (ev.key !== 'Enter') return;
+  ev.preventDefault();
+  if (rutOk(this.value)) { origenRut = 'digitado'; elegirRut(this.value); }
+});
+function buscarTrab(){
+  var raw = $('#qTrab').value, q = norm(raw), r = $('#resTrab');
+  if (q.length < 2) { r.style.display = 'none'; return; }
+  var lista = (DB.personal || []).filter(function(x){ return norm(x.nombre + ' ' + x.rut).indexOf(q) >= 0; }).slice(0, 8);
+  var html = lista.map(function(x, i){
+    return '<div data-i="' + i + '"><b>' + h(x.nombre) + '</b><br><small>' +
+      (x.rut ? h(x.rut) : '<span style="color:var(--err);font-weight:600">sin RUT</span>') + ' · ' + h(x.cargo) + '</small></div>';
+  }).join('');
+  var esRut = rutOk(raw);
+  if (esRut && !porRut(raw)) html += '<div data-n="rut"><b>➕ Registrar trabajador con RUT ' + h(fmtR(raw)) + '</b><br><small>No está en la nómina</small></div>';
+  else if (!lista.length) html += '<div class="vacio">Sin resultados</div><div data-n="nom"><b>➕ Registrar trabajador nuevo</b></div>';
+  r.innerHTML = html; r.style.display = 'block';
+  r.querySelectorAll('[data-i]').forEach(function(el){
+    el.onclick = function(){ trab = lista[+el.dataset.i]; $('#qTrab').value = ''; r.style.display = 'none'; renderTrab(); };
+  });
+  r.querySelectorAll('[data-n]').forEach(function(el){
+    el.onclick = function(){
+      origenRut = 'digitado';
+      if (el.dataset.n === 'rut') abrirNuevo(fmtR(raw), ''); else abrirNuevo('', /\d/.test(raw) ? '' : raw);
+    };
+  });
+}
+/** Llega un RUT válido (escaneado o digitado): selecciona al trabajador o abre el alta. */
+function rutLeido(rut){
+  if (trab && !trab.rut) { $('#trRut').value = rut; guardarRutTrab(); return; }
+  if ($('#trabNuevo').style.display !== 'none') { $('#tnRut').value = rut; $('#tnNom').focus(); return; }
+  elegirRut(rut);
+}
+function elegirRut(rut){
+  var t = porRut(rut);
+  $('#qTrab').value = ''; $('#resTrab').style.display = 'none';
+  if (t) { trab = t; renderTrab(); toast(t.nombre, 'ok'); return; }
+  abrirNuevo(fmtR(rut), '');
+}
+function abrirNuevo(rut, nombre){
+  $('#qTrab').value = ''; $('#resTrab').style.display = 'none';
+  $('#trabBus').style.display = 'none'; $('#trabNuevo').style.display = 'block';
+  $('#tnRut').value = rut || ''; $('#tnNom').value = nombre || ''; $('#tnCargo').value = ''; $('#tnTurno').value = '';
+  var uniq = function(k){ return Array.from(new Set((DB.personal || []).map(function(x){ return x[k]; }).filter(Boolean))).sort(); };
+  $('#dlCargos').innerHTML = uniq('cargo').map(function(c){ return '<option value="' + h(c) + '">'; }).join('');
+  $('#dlTurnos').innerHTML = uniq('turno').map(function(c){ return '<option value="' + h(c) + '">'; }).join('');
+  (rut ? $('#tnNom') : $('#tnRut')).focus();
+}
+function cancelarNuevo(){ $('#trabNuevo').style.display = 'none'; renderTrab(); }
+function guardarNuevo(){
+  var rut = $('#tnRut').value.trim(), nom = $('#tnNom').value.trim();
+  if (!rutOk(rut)) return toast('RUT inválido. Revisa el dígito verificador.', 'err');
+  if (nom.length < 5) return toast('Ingresa el nombre completo', 'err');
+  var ya = porRut(rut);
+  if (ya) { trab = ya; $('#trabNuevo').style.display = 'none'; renderTrab(); return toast('Ya estaba en la nómina: ' + ya.nombre, 'ok'); }
+  over(true, 'Registrando trabajador…');
+  google.script.run.withSuccessHandler(function(t){
+    over(false);
+    if (!t.existia) DB.personal.push({rut: t.rut, nombre: t.nombre, cargo: t.cargo, turno: t.turno});
+    trab = porRut(t.rut) || t;
+    $('#trabNuevo').style.display = 'none'; renderTrab();
+    toast(t.existia ? 'Ya estaba en la nómina' : 'Trabajador registrado en PERSONAL', 'ok');
+  }).withFailureHandler(function(e){ over(false); toast(e.message, 'err'); })
+    .crearTrabajador({rut: fmtR(rut), nombre: nom, cargo: $('#tnCargo').value.trim(), turno: $('#tnTurno').value.trim(),
+      origen: origenRut, creadoPor: $('#entregador').value.trim()});
+}
+/** Trabajador que en PERSONAL solo tenía nombre: se le completa el RUT. */
+function guardarRutTrab(){
+  var v = $('#trRut').value.trim();
+  if (!rutOk(v)) return toast('RUT inválido. Revisa el dígito verificador.', 'err');
+  var otro = porRut(v);
+  if (otro) return toast('Ese RUT ya pertenece a ' + otro.nombre, 'err');
+  over(true, 'Guardando RUT…');
+  google.script.run.withSuccessHandler(function(t){
+    over(false); trab.rut = t.rut; renderTrab(); toast('RUT guardado en PERSONAL', 'ok');
+  }).withFailureHandler(function(e){ over(false); toast(e.message, 'err'); })
+    .asignarRut({nombre: trab.nombre, rut: fmtR(v)});
+}
 function renderTrab(){
-  if (!trab) { $('#trabSel').innerHTML = ''; $('#trabBus').style.display = 'block'; return; }
-  $('#trabBus').style.display = 'none';
-  $('#trabSel').innerHTML = '<div class="sel"><div><b>' + h(trab.nombre) + '</b><small>' + h(trab.rut) + ' · ' + h(trab.cargo) + ' · ' + h(trab.turno) + '</small></div><button class="x" onclick="trab=null;renderTrab()">✕</button></div>';
+  if (!trab) { $('#trabSel').innerHTML = ''; $('#trabBus').style.display = $('#trabNuevo').style.display === 'none' ? 'block' : 'none'; return; }
+  $('#trabBus').style.display = 'none'; $('#trabNuevo').style.display = 'none';
+  $('#trabSel').innerHTML = '<div class="sel"><div><b>' + h(trab.nombre) + '</b><small>' + (trab.rut ? h(trab.rut) : '<span style="color:var(--err);font-weight:600">SIN RUT</span>') +
+    ' · ' + h(trab.cargo) + ' · ' + h(trab.turno) + '</small></div><button class="x" onclick="trab=null;renderTrab()">✕</button></div>' +
+    (trab.rut ? '' : '<div class="alerta"><b>Falta el RUT.</b> Escanea su cédula o escríbelo; quedará guardado en la nómina.' +
+      '<div class="row" style="margin-top:8px"><input id="trRut" placeholder="12345678-9" autocomplete="off">' +
+      '<button class="btn sec" style="flex:none" onclick="abrirScanner(\'cred\')">🪪</button>' +
+      '<button class="btn ok" style="flex:none" onclick="guardarRutTrab()">Guardar</button></div></div>');
 }
 
 /* ---------- Ítems de la entrega ---------- */
@@ -447,9 +616,18 @@ function firmaPng(){
 }
 
 /* ---------- Registrar ---------- */
+/** Si el servidor no responde (mala señal), libera la pantalla y advierte que NO se debe reintentar a ciegas. */
+function vigia(){
+  return setTimeout(function(){
+    over(false); $('#btnReg').disabled = false;
+    alert('No llegó respuesta del servidor (posible mala señal).\n\nANTES de reintentar revisa la hoja ' + (MOD === 'ins' ? 'INS_ENTREGAS' : 'ENTREGAS') +
+      ': si la entrega aparece, ya quedó registrada y NO debes registrarla de nuevo (se descontaría el stock dos veces).');
+  }, ESPERA_MAX);
+}
 function registrar(){
   if (MOD === 'ins') return registrarIns();
   if (!trab) return toast('Selecciona al trabajador', 'err');
+  if (!trab.rut) return toast('Al trabajador le falta el RUT: complétalo arriba', 'err');
   if (!items.length) return toast('Agrega al menos un EPP', 'err');
   var ent = $('#entregador').value.trim();
   if (!ent) return toast('Indica quién entrega', 'err');
@@ -459,18 +637,22 @@ function registrar(){
   ls('epp_entregador', ent);
   $('#btnReg').disabled = true;
   over(true, 'Registrando y generando PDF…');
+  var v = vigia();
   google.script.run.withSuccessHandler(function(r){
-    over(false); $('#btnReg').disabled = false;
+    clearTimeout(v); over(false); $('#btnReg').disabled = false;
     $('#formEntrega').style.display = 'none'; $('.fix').style.display = 'none';
     $('#resultado').style.display = 'block';
     $('#rFolio').innerHTML = 'Entrega registrada<br>' + h(r.folio);
     $('#rTxt').textContent = trab.nombre + ' · ' + items.reduce(function(a, b){ return a + b.cant; }, 0) + ' EPP';
-    $('#rPdf').href = r.url;
-    $('#rAlertas').innerHTML = r.alertas.length ? '<div class="alerta"><b>Stock bajo el mínimo:</b><br>' + r.alertas.map(h).join('<br>') + '</div>' : '';
+    if (r.url) { $('#rPdf').href = r.url; $('#rPdf').style.display = ''; } else $('#rPdf').style.display = 'none';
+    $('#rAlertas').innerHTML =
+      (r.pdfPendiente ? '<div class="alerta"><b>PDF pendiente.</b> La entrega quedó registrada con folio ' + h(r.folio) +
+        ', pero el PDF no se pudo generar. En la planilla: menú <b>EPP / Insumos → Regenerar PDF pendientes</b>. No registres esta entrega de nuevo.</div>' : '') +
+      (r.alertas.length ? '<div class="alerta"><b>Stock bajo el mínimo:</b><br>' + r.alertas.map(h).join('<br>') + '</div>' : '');
     window.scrollTo(0, 0);
     cargarSilencioso();
   }).withFailureHandler(function(e){
-    over(false); $('#btnReg').disabled = false; toast(e.message, 'err');
+    clearTimeout(v); over(false); $('#btnReg').disabled = false; toast(e.message, 'err');
   }).registrarEntrega({
     rut: trab.rut, items: items.map(function(i){ return {codigo: i.codigo, cantidad: i.cant}; }),
     motivo: $('#motivo').value, obs: $('#obs').value.trim(), entregadoPor: ent, firma: firmaPng()
@@ -480,6 +662,7 @@ function registrarIns(){
   var area = $('#area').value;
   if (!area) return toast('Selecciona el área', 'err');
   if (!trab) return toast('Selecciona al trabajador', 'err');
+  if (!trab.rut) return toast('Al trabajador le falta el RUT: complétalo arriba', 'err');
   if (!items.length) return toast('Agrega al menos un insumo', 'err');
   var ent = $('#entregador').value.trim();
   if (!ent) return toast('Indica quién entrega', 'err');
@@ -488,8 +671,9 @@ function registrarIns(){
   ls('epp_entregador', ent);
   $('#btnReg').disabled = true;
   over(true, 'Registrando entrega…');
+  var v = vigia();
   google.script.run.withSuccessHandler(function(r){
-    over(false); $('#btnReg').disabled = false;
+    clearTimeout(v); over(false); $('#btnReg').disabled = false;
     $('#formEntrega').style.display = 'none'; $('.fix').style.display = 'none';
     $('#resultado').style.display = 'block';
     $('#rFolio').innerHTML = 'Entrega registrada<br>' + h(r.folio);
@@ -498,7 +682,7 @@ function registrarIns(){
     window.scrollTo(0, 0);
     cargarSilencioso(); cargarConsumo($('#cMes').value);
   }).withFailureHandler(function(e){
-    over(false); $('#btnReg').disabled = false; toast(e.message, 'err');
+    clearTimeout(v); over(false); $('#btnReg').disabled = false; toast(e.message, 'err');
   }).registrarInsumos({
     area: area, rut: trab.rut, items: items.map(function(i){ return {codigo: i.codigo, cantidad: i.cant}; }),
     obs: $('#obs').value.trim(), entregadoPor: ent
@@ -530,16 +714,23 @@ function renderConsumo(r){
 function nuevaEntrega(){
   trab = null; items = []; $('#obs').value = ''; $('#motivo').selectedIndex = 0;
   $('#resultado').style.display = 'none'; $('#formEntrega').style.display = 'block'; $('.fix').style.display = 'block';
+  $('#rPdf').style.display = ''; $('#trabNuevo').style.display = 'none';
   renderTrab(); renderItems(); firmado = false; ajustarFirma(); window.scrollTo(0, 0);
 }
 
 /* ---------- Escáner ---------- */
+var TIT_SCAN = {entrega: 'Apunta al código del estante', stock: 'Apunta al código del estante', cred: 'Cédula o credencial de faena: pon el código de barras horizontal dentro del cuadro', login: 'Escanea tu credencial: código de barras horizontal dentro del cuadro'};
 function abrirScanner(modo){
   scanMode = modo; lastCode = ''; scanListo = false; renderScanList();
+  $('#scanTit').textContent = TIT_SCAN[modo] || '';
   $('#camErr').style.display = 'none'; $('#mScan').classList.add('on');
   try {
-    qr = new Html5Qrcode('reader', {experimentalFeatures: {useBarCodeDetectorIfSupported: true}});
-    qr.start({facingMode: 'environment'}, {fps: 12, qrbox: function(w, hh){ return {width: Math.floor(w * 0.85), height: Math.floor(Math.min(hh, w) * 0.55)}; }},
+    var cfg = {experimentalFeatures: {useBarCodeDetectorIfSupported: true}};
+    // Credencial de faena (HID) y cédula antigua usan PDF417; cédula nueva usa QR. Limitar formatos acelera la lectura.
+    if ((modo === 'cred' || modo === 'login') && typeof Html5QrcodeSupportedFormats !== 'undefined') cfg.formatsToSupport = [Html5QrcodeSupportedFormats.PDF_417, Html5QrcodeSupportedFormats.QR_CODE];
+    var alto = (modo === 'cred' || modo === 'login') ? 0.45 : 0.55;
+    qr = new Html5Qrcode('reader', cfg);
+    qr.start({facingMode: 'environment'}, {fps: 12, qrbox: function(w, hh){ return {width: Math.floor(w * 0.92), height: Math.floor(Math.min(hh, w) * alto)}; }},
       onScan, function(){}).catch(function(){ $('#camErr').style.display = 'block'; });
   } catch(e) { $('#camErr').style.display = 'block'; }
 }
@@ -551,7 +742,14 @@ function onScan(txt){
   // Mientras el mismo código siga en cámara no se vuelve a contar; para sumar otra unidad, sácalo del cuadro y vuelve a apuntar (o usa +).
   if (txt === lastCode && now - lastT < 1500) { lastT = now; return; }
   lastCode = txt; lastT = now;
-  if (scanMode === 'entrega') {
+  if (scanMode === 'cred' || scanMode === 'login') {
+    var rut = rutDeCodigo(txt);
+    if (!rut) return toast('Ese código no trae un RUT válido. Prueba con el otro lado o escríbelo.', 'err');
+    scanListo = true; vibrar(); cerrarScanner();
+    if (scanMode === 'login') { $('#lgRut').value = rut; $('#lgPin').focus(); return; }
+    origenRut = 'cédula escaneada'; rutLeido(rut);
+  }
+  else if (scanMode === 'entrega') {
     if (!buscarCod(txt)) return noReg(txt);   // código desconocido: avisa y sigue escaneando
     scanListo = true; agregar(txt); cerrarScanner();
   }
@@ -668,15 +866,74 @@ function generarEtiquetas(){
   }).withFailureHandler(function(e){ over(false); toast(e.message, 'err'); }).etiquetasPdf(sel, MOD);
 }
 
+/* ---------- Acceso por usuario ---------- */
+function mostrarLogin(){
+  $('#auth').classList.add('on'); $('#lgForm').style.display = 'block'; $('#cpForm').style.display = 'none';
+  $('#lgRut').value = ls('epp_rut'); $('#lgPin').value = '';
+}
+function mostrarCambio(obligatorio){
+  $('#auth').classList.add('on'); $('#lgForm').style.display = 'none'; $('#cpForm').style.display = 'block';
+  $('#cpTxt').textContent = obligatorio ? 'Tu PIN es provisorio. Crea tu PIN personal para continuar; desde ahora solo tú lo conocerás.' : 'Cambia tu PIN personal.';
+  ['#cpAct', '#cpNue', '#cpCon'].forEach(function(s){ $(s).value = ''; });
+  $('#cpCancel').style.display = obligatorio ? 'none' : 'flex';
+  $('#cpSalir').style.display = obligatorio ? 'flex' : 'none';
+  setTimeout(function(){ $('#cpAct').focus(); }, 50);
+}
+function cancelarCambio(){ $('#auth').classList.remove('on'); }
+window.sesionInvalida = function(tipo){
+  over(false);
+  if (tipo === 'CAMBIO_PIN') return mostrarCambio(true);
+  ls('epp_token', ''); mostrarLogin();
+};
+function ingresar(){
+  var rut = $('#lgRut').value.trim(), pin = $('#lgPin').value.trim();
+  if (!rutOk(rut)) return toast('RUT inválido. Revisa el dígito verificador.', 'err');
+  if (!pin) return toast('Ingresa tu PIN', 'err');
+  over(true, 'Ingresando…');
+  google.script.run.withSuccessHandler(function(r){
+    over(false);
+    ls('epp_token', r.token); ls('epp_nombre', r.nombre); ls('epp_rol', r.rol || ''); ls('epp_rut', fmtR(rut));
+    if (r.debeCambiar) return mostrarCambio(true);
+    entrar();
+  }).withFailureHandler(function(e){ over(false); $('#lgPin').value = ''; toast(e.message, 'err'); })
+    .login({rut: fmtR(rut), pin: pin});
+}
+$('#lgPin').addEventListener('keydown', function(ev){ if (ev.key === 'Enter') ingresar(); });
+function guardarPin(){
+  var a = $('#cpAct').value.trim(), n = $('#cpNue').value.trim(), c = $('#cpCon').value.trim();
+  if (!a) return toast('Ingresa tu PIN actual', 'err');
+  if (!/^\d{4,8}$/.test(n)) return toast('El nuevo PIN debe tener de 4 a 8 números', 'err');
+  if (n !== c) return toast('La confirmación no coincide con el nuevo PIN', 'err');
+  if (n === a) return toast('El nuevo PIN debe ser distinto al actual', 'err');
+  over(true, 'Guardando PIN…');
+  google.script.run.withSuccessHandler(function(){
+    over(false); toast('PIN personal guardado', 'ok'); entrar();
+  }).withFailureHandler(function(e){ over(false); toast(e.message, 'err'); })
+    .cambiarPin({actual: a, nuevo: n});
+}
+function salir(sinPreguntar){
+  if (!sinPreguntar && !confirm('¿Cerrar sesión en este celular?')) return;
+  google.script.run.cerrarSesion();
+  ls('epp_token', ''); ls('epp_nombre', ''); ls('epp_rol', '');
+  setTimeout(function(){ location.reload(); }, 400);
+}
+var cargado = false;
+function entrar(){
+  $('#auth').classList.remove('on');
+  var nom = ls('epp_nombre');
+  $('#usr').innerHTML = '👤 ' + h(nom) + '<a onclick="mostrarCambio(false)">Cambiar PIN</a><a onclick="salir()">Salir</a>';
+  $('#entregador').value = nom; $('#sResp').value = nom;
+  if (cargado) return;
+  over(true, 'Cargando datos…');
+  google.script.run.withSuccessHandler(function(d){
+    cargado = true; DB = d; over(false); renderAreas(); renderStock(); renderEtiq(); renderItems();
+    if (ls('epp_mod') === 'ins' && MOD !== 'ins') setMod('ins');
+  }).withFailureHandler(function(e){ over(false); toast(e.message, 'err'); }).getDatos();
+}
+
 /* ---------- Inicio ---------- */
-$('#entregador').value = ls('epp_entregador');
-$('#sResp').value = ls('epp_entregador');
 renderTrab(); renderItems(); ajustarFirma();
-over(true, 'Cargando datos…');
-google.script.run.withSuccessHandler(function(d){
-  DB = d; over(false); renderAreas(); renderStock(); renderEtiq(); renderItems();
-  if (ls('epp_mod') === 'ins') setMod('ins');
-}).withFailureHandler(function(e){ over(false); toast(e.message, 'err'); }).getDatos();
+if (ls('epp_token')) entrar(); else mostrarLogin();
 </script>
 </body>
 </html>
