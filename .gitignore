@@ -1,0 +1,17 @@
+# Credenciales de clasp / Google (nunca al repo)
+.clasprc.json
+**/.clasprc.json
+credentials*.json
+client_secret*.json
+service-account*.json
+*.pem
+*.key
+.env
+.env.*
+
+# Node
+node_modules/
+
+# Sistema
+.DS_Store
+Thumbs.db
