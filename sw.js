@@ -1,6 +1,6 @@
 // Service worker mínimo: permite instalar la app y guarda la pantalla para abrir rápido.
 // Los datos SIEMPRE se piden a la planilla (no se guardan en caché).
-const CACHE = 'epp-mitt-v1';
+const CACHE = 'epp-mitt-v2';
 const BASE = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(BASE)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', e => {
