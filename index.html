@@ -14,6 +14,17 @@
 <link rel="apple-touch-icon" href="icon-192.png">
 <title>EPP MITT</title>
 <script>
+/* Tema: 'auto' sigue al celular; 'light' o 'dark' lo fija el usuario. Se aplica antes de pintar para evitar parpadeo. */
+function temaGuardado(){ try { return localStorage.getItem('epp_tema') || 'auto'; } catch(e){ return 'auto'; } }
+function aplicarTema(t){
+  var r = document.documentElement;
+  if (t === 'light' || t === 'dark') r.setAttribute('data-theme', t); else r.removeAttribute('data-theme');
+  var oscuro = t === 'dark' || (t !== 'light' && window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches);
+  var m = document.querySelector('meta[name="theme-color"]'); if (m) m.setAttribute('content', oscuro ? '#0B1013' : '#1C2930');
+}
+aplicarTema(temaGuardado());
+</script>
+<script>
 /* ============ CONFIGURACIÓN ============
  * Pega aquí la URL de tu implementación de Apps Script (termina en /exec).
  */
@@ -225,7 +236,7 @@ var API_URL = 'https://script.google.com/macros/s/AKfycbx21GkRzYnnBNyLddiAas4wyW
 <header>
   <div class="barra-in">
     <div class="marca"><span class="placa">MITT</span><span id="titulo">Entrega de EPP</span></div>
-    <small class="ver"><span class="faena">Finning DMH · </span><span id="ver">v5.2</span></small>
+    <small class="ver"><span class="faena">Finning DMH · </span><span id="ver">v5.3</span></small>
   </div>
   <div class="usr" id="usr"></div>
   <div class="modsw"><button id="swEpp" class="on" onclick="setMod('epp')">EPP</button><button id="swIns" onclick="setMod('ins')">Insumos</button></div>
@@ -421,6 +432,7 @@ var API_URL = 'https://script.google.com/macros/s/AKfycbx21GkRzYnnBNyLddiAas4wyW
       <input id="lgPin" type="password" inputmode="numeric" maxlength="8" autocomplete="current-password">
       <button class="btn ok full" style="margin-top:16px" onclick="ingresar()">Ingresar</button>
       <p class="nota">¿Primera vez o no tienes PIN? Pide al supervisor a cargo que te registre en la hoja USUARIOS.</p>
+      <button class="btn sec full temaBtn" style="margin-top:8px" onclick="cambiarTema()"></button>
     </div>
     <div id="cpForm" style="display:none">
       <p id="cpTxt"></p>
@@ -1034,7 +1046,8 @@ var cargado = false;
 function entrar(){
   $('#auth').classList.remove('on');
   var nom = ls('epp_nombre');
-  $('#usr').innerHTML = h(nom) + '<a onclick="mostrarCambio(false)">Cambiar PIN</a><a onclick="salir()">Salir</a>';
+  $('#usr').innerHTML = h(nom) + '<a onclick="mostrarCambio(false)">Cambiar PIN</a><a class="temaBtn" onclick="cambiarTema()"></a><a onclick="salir()">Salir</a>';
+  pintarTema();
   $('#entregador').value = nom; $('#sResp').value = nom;
   if (cargado) return;
   over(true, 'Cargando datos…');
@@ -1043,6 +1056,18 @@ function entrar(){
     if (ls('epp_mod') === 'ins' && MOD !== 'ins') setMod('ins');
   }).withFailureHandler(function(e){ over(false); toast(e.message, 'err'); }).getDatos();
 }
+
+/* ---------- Tema claro / oscuro ---------- */
+var TEMAS = {auto: 'Tema: automático', light: 'Tema: claro', dark: 'Tema: oscuro'};
+function pintarTema(){ document.querySelectorAll('.temaBtn').forEach(function(b){ b.textContent = TEMAS[temaGuardado()]; }); }
+function cambiarTema(){
+  var orden = ['auto', 'light', 'dark'], t = orden[(orden.indexOf(temaGuardado()) + 1) % 3];
+  try { localStorage.setItem('epp_tema', t); } catch(e){}
+  aplicarTema(t); pintarTema();
+  toast(t === 'auto' ? 'Tema automático (sigue al celular)' : t === 'light' ? 'Tema claro' : 'Tema oscuro', 'ok');
+}
+if (window.matchMedia) try { matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function(){ aplicarTema(temaGuardado()); }); } catch(e){}
+pintarTema();
 
 /* ---------- Inicio ---------- */
 renderTrab(); renderItems(); ajustarFirma();
