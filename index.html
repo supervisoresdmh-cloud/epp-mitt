@@ -1,0 +1,674 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#1f3a5f">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>EPP MITT</title>
+<script>
+/* ============ CONFIGURACIÓN ============
+ * https://script.google.com/macros/s/AKfycbx21GkRzYnnBNyLddiAas4wyWlZgQ2t4OrBCVQsIO7Z3NlRkUDGxG0KQaCPX5WUCr2zHw/exec
+
+ */
+var API_URL = 'PEGA_AQUI_TU_URL_DE_APPS_SCRIPT/exec';
+
+/* Puente: imita google.script.run, pero llama a la Sheet por internet. */
+(function(){
+  function getPin(){ try { return localStorage.getItem('epp_pin') || ''; } catch(e){ return ''; } }
+  function setPin(v){ try { localStorage.setItem('epp_pin', v); } catch(e){} }
+  function pedirPin(msg){ var p = prompt(msg || 'Ingresa el PIN de la app'); if (p) setPin(p.trim()); return p ? p.trim() : ''; }
+  function llamar(fn, args, ok, fail, intento){
+    if (API_URL.indexOf('PEGA_AQUI') === 0) { fail && fail({message: 'Falta configurar API_URL en index.html'}); return; }
+    var pin = getPin() || pedirPin();
+    fetch(API_URL, {method: 'POST', headers: {'Content-Type': 'text/plain;charset=utf-8'}, body: JSON.stringify({fn: fn, args: args, pin: pin})})
+      .then(function(r){ return r.json(); })
+      .then(function(j){
+        if (j.ok) { ok && ok(j.data); return; }
+        if (j.error === 'PIN' && (intento || 0) < 2) { setPin(''); pedirPin('PIN incorrecto. Ingrésalo de nuevo'); return llamar(fn, args, ok, fail, (intento || 0) + 1); }
+        fail && fail({message: j.error === 'PIN' ? 'PIN incorrecto' : j.error});
+      })
+      .catch(function(){ fail && fail({message: 'Sin conexión con la planilla. Revisa tu señal e intenta de nuevo.'}); });
+  }
+  function runner(){
+    var ok = null, fail = null, px;
+    px = new Proxy({}, {get: function(t, name){
+      if (name === 'withSuccessHandler') return function(f){ ok = f; return px; };
+      if (name === 'withFailureHandler') return function(f){ fail = f; return px; };
+      if (name === 'withUserObject') return function(){ return px; };
+      return function(){ llamar(name, Array.prototype.slice.call(arguments), ok, fail); };
+    }});
+    return px;
+  }
+  window.google = {script: {get run(){ return runner(); }}};
+  if ('serviceWorker' in navigator) window.addEventListener('load', function(){ navigator.serviceWorker.register('sw.js').catch(function(){}); });
+})();
+</script>
+
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
+<style>
+  :root{--az:#1f3a5f;--az2:#2d5a8c;--bg:#f2f4f7;--card:#fff;--tx:#14202e;--mut:#5d6b7a;--ok:#1e8e4e;--err:#c0392b;--warn:#d68910;--bd:#d6dde5}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);color:var(--tx);font-size:16px}
+  header{background:var(--az);color:#fff;padding:12px 16px;position:sticky;top:0;z-index:5}
+  header h1{margin:0;font-size:18px}
+  header small{opacity:.75}
+  nav{display:flex;background:var(--az2)}
+  nav button{flex:1;background:none;border:0;color:#cfe0f3;padding:11px 4px;font-size:14px;font-weight:600;border-bottom:3px solid transparent}
+  nav button.on{color:#fff;border-bottom-color:#fff}
+  main{padding:12px;max-width:640px;margin:0 auto 90px}
+  .card{background:var(--card);border-radius:12px;padding:14px;margin-bottom:12px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+  .card h2{margin:0 0 10px;font-size:15px;color:var(--az);text-transform:uppercase;letter-spacing:.3px}
+  input,select,textarea{width:100%;padding:11px;border:1px solid var(--bd);border-radius:8px;font-size:16px;background:#fff;color:var(--tx)}
+  textarea{min-height:60px;resize:vertical}
+  label{display:block;font-size:13px;color:var(--mut);margin:10px 0 4px}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:0;border-radius:10px;padding:12px 14px;font-size:15px;font-weight:600;background:var(--az);color:#fff}
+  .btn.sec{background:#e3e9f0;color:var(--az)}
+  .btn.ok{background:var(--ok)}
+  .btn.full{width:100%}
+  .btn:disabled{opacity:.5}
+  .row{display:flex;gap:8px;align-items:center}
+  .row>*{flex:1}
+  .res{margin-top:6px;border:1px solid var(--bd);border-radius:8px;overflow:hidden}
+  .res div{padding:10px;border-bottom:1px solid #eef1f4;background:#fff}
+  .res div:last-child{border-bottom:0}
+  .res div:active{background:#eaf1f9}
+  .res small{color:var(--mut)}
+  .sel{background:#eaf1f9;border:1px solid #bcd0e6;border-radius:8px;padding:10px;display:flex;justify-content:space-between;align-items:center;gap:8px}
+  .sel b{display:block}
+  .x{background:none;border:0;color:var(--err);font-size:22px;padding:0 6px}
+  .item{display:flex;align-items:center;gap:8px;padding:10px 0;border-bottom:1px solid #eef1f4}
+  .item:last-child{border-bottom:0}
+  .item .info{flex:1;min-width:0}
+  .item .info small{color:var(--mut);display:block}
+  .item .warn{color:var(--warn);font-weight:600}
+  .qty{display:flex;align-items:center;gap:4px}
+  .qty button{width:34px;height:34px;border-radius:8px;border:1px solid var(--bd);background:#fff;font-size:18px;color:var(--az)}
+  .qty span{min-width:26px;text-align:center;font-weight:700}
+  .vacio{color:var(--mut);text-align:center;padding:12px;font-size:14px}
+  #firma{width:100%;height:190px;border:2px dashed var(--bd);border-radius:10px;touch-action:none;background:#fff;display:block}
+  .modal{position:fixed;inset:0;background:rgba(10,20,30,.92);z-index:20;display:none;flex-direction:column;padding:14px;color:#fff}
+  .modal.on{display:flex}
+  #reader{width:100%;max-width:480px;margin:0 auto;border-radius:10px;overflow:hidden;background:#000}
+  .modal p{text-align:center;font-size:14px;opacity:.85}
+  #scanList{max-width:480px;margin:8px auto;width:100%;font-size:14px;max-height:22vh;overflow:auto}
+  .over{position:fixed;inset:0;background:rgba(255,255,255,.85);z-index:30;display:none;align-items:center;justify-content:center;flex-direction:column;font-weight:600;color:var(--az)}
+  .over.on{display:flex}
+  .spin{width:42px;height:42px;border:4px solid #cfdbe8;border-top-color:var(--az);border-radius:50%;animation:g 1s linear infinite;margin-bottom:12px}
+  @keyframes g{to{transform:rotate(360deg)}}
+  #toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);background:#222;color:#fff;padding:11px 16px;border-radius:10px;z-index:40;font-size:15px;display:none;max-width:90%;text-align:center}
+  #toast.err{background:var(--err)} #toast.ok{background:var(--ok)}
+  table.st{width:100%;border-collapse:collapse;font-size:14px}
+  table.st td,table.st th{padding:7px 4px;border-bottom:1px solid #eef1f4;text-align:left}
+  table.st td.n{text-align:right;font-weight:700}
+  tr.bajo td{color:var(--err)}
+  .lbl{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #eef1f4}
+  .lbl input[type=checkbox]{width:22px;height:22px;flex:none}
+  .lbl input[type=number]{width:64px;flex:none;padding:6px}
+  .lbl .info{flex:1}
+  .exito{text-align:center}
+  .exito .big{font-size:46px;color:var(--ok)}
+  .alerta{background:#fff4e0;border:1px solid #f0c27a;color:#8a5a00;border-radius:8px;padding:10px;margin-top:10px;font-size:14px;text-align:left}
+  .seg{display:flex;background:#e3e9f0;border-radius:10px;padding:3px}
+  .seg button{flex:1;border:0;background:none;padding:9px;border-radius:8px;font-weight:600;color:var(--az);font-size:14px}
+  .seg button.on{background:var(--az);color:#fff}
+  table.st tr[data-c]{cursor:pointer}
+  body.ins{--az:#0f5e57;--az2:#16786f}
+  .modsw{display:flex;gap:4px;margin-top:8px;background:rgba(255,255,255,.15);border-radius:10px;padding:3px}
+  .modsw button{flex:1;border:0;background:none;color:#dfe9f2;padding:8px;border-radius:8px;font-weight:700;font-size:14px}
+  .modsw button.on{background:#fff;color:var(--az)}
+  .solo-epp,.solo-ins{}
+  body.ins .solo-epp{display:none!important}
+  body:not(.ins) .solo-ins{display:none!important}
+  .kpi{display:flex;gap:8px;margin-bottom:10px}
+  .kpi div{flex:1;background:#eef5f4;border-radius:10px;padding:10px;text-align:center}
+  .kpi b{display:block;font-size:22px;color:var(--az)}
+  .kpi small{color:var(--mut);font-size:12px}
+  h3.area{font-size:14px;margin:14px 0 4px;color:var(--az);border-bottom:2px solid var(--az);padding-bottom:3px}
+  .tab{display:none} .tab.on{display:block}
+  .fix{position:fixed;left:0;right:0;bottom:0;padding:10px 12px;background:#fff;box-shadow:0 -2px 8px rgba(0,0,0,.1);z-index:6}
+  .fix .btn{max-width:640px;margin:0 auto;display:flex}
+</style>
+</head>
+<body>
+<header><h1 id="titulo">Entrega de EPP</h1><small>MITT SpA · Finning DMH</small>
+  <div class="modsw"><button id="swEpp" class="on" onclick="setMod('epp')">🦺 EPP</button><button id="swIns" onclick="setMod('ins')">🧴 Insumos</button></div>
+</header>
+<nav>
+  <button class="on" data-t="tEntrega">Entrega</button>
+  <button data-t="tStock">Stock</button>
+  <button data-t="tEtiq">Etiquetas</button>
+  <button data-t="tCons" class="solo-ins">Consumo</button>
+</nav>
+
+<main>
+  <!-- ================= ENTREGA ================= -->
+  <section id="tEntrega" class="tab on">
+    <div id="formEntrega">
+      <div class="card">
+        <h2><span class="solo-epp">1 · Trabajador</span><span class="solo-ins">1 · Área y trabajador</span></h2>
+        <div class="solo-ins" style="margin-bottom:10px">
+          <select id="area"><option value="">— Selecciona el área —</option></select>
+        </div>
+        <div id="trabSel"></div>
+        <div id="trabBus">
+          <input id="qTrab" placeholder="Buscar por nombre o RUT" autocomplete="off">
+          <div id="resTrab" class="res" style="display:none"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2><span class="solo-epp">2 · EPP entregados</span><span class="solo-ins">2 · Insumos entregados</span></h2>
+        <button class="btn full" onclick="abrirScanner('entrega')">📷 Escanear código</button>
+        <label>o buscar manualmente</label>
+        <input id="qEpp" placeholder="Nombre o código" autocomplete="off">
+        <div id="resEpp" class="res" style="display:none"></div>
+        <div id="items" style="margin-top:8px"></div>
+      </div>
+
+      <div class="card">
+        <h2>3 · Datos de la entrega</h2>
+        <div class="solo-epp"><label>Motivo</label>
+        <select id="motivo">
+          <option>Primera entrega / ingreso</option>
+          <option>Reposición por desgaste</option>
+          <option>Reposición por daño</option>
+          <option>Reposición por pérdida</option>
+          <option>Cambio de talla</option>
+          <option>Entrega temporal / visita</option>
+        </select></div>
+        <label>Observación (opcional)</label>
+        <textarea id="obs"></textarea>
+        <label>Entregado por</label>
+        <input id="entregador" placeholder="Nombre de quien entrega">
+      </div>
+
+      <div class="card solo-epp">
+        <h2>4 · Firma del trabajador</h2>
+        <canvas id="firma"></canvas>
+        <div class="row" style="margin-top:8px">
+          <small style="color:var(--mut)">El trabajador firma con el dedo</small>
+          <button class="btn sec" style="flex:none" onclick="limpiarFirma()">Borrar firma</button>
+        </div>
+      </div>
+      <div class="fix"><button class="btn ok full" id="btnReg" onclick="registrar()">✔ Registrar entrega y generar PDF</button></div>
+    </div>
+
+    <div id="resultado" class="card exito" style="display:none">
+      <div class="big">✔</div>
+      <h2 id="rFolio" style="font-size:20px"></h2>
+      <p id="rTxt" style="color:var(--mut)"></p>
+      <a id="rPdf" class="btn full solo-epp" target="_blank" href="#">Ver PDF</a>
+      <div id="rAlertas"></div>
+      <button class="btn sec full" style="margin-top:10px" onclick="nuevaEntrega()">Nueva entrega</button>
+    </div>
+  </section>
+
+  <!-- ================= STOCK ================= -->
+  <section id="tStock" class="tab">
+    <div class="card">
+      <div class="seg"><button id="mIng" class="on" onclick="modoStock('ingreso')">Ingreso</button><button id="mAju" onclick="modoStock('ajuste')">Ajuste por conteo</button></div>
+      <p id="sAyuda" style="font-size:13px;color:var(--mut);margin:8px 0">Suma unidades al stock (compras, reposición de bodega).</p>
+      <button class="btn full" onclick="abrirScanner('stock')">📷 Escanear estante</button>
+      <label>o buscar</label>
+      <input id="qStock" placeholder="Nombre o código" autocomplete="off">
+      <div id="resStock" class="res" style="display:none"></div>
+      <div id="stockSel" style="margin-top:8px"></div>
+      <label id="lCant">Cantidad que ingresa</label>
+      <input id="sCant" type="number" min="0" inputmode="numeric" oninput="previewAjuste()">
+      <div id="sDiff" class="alerta" style="display:none"></div>
+      <div id="bDoc"><label>Documento (guía, OC, vale)</label>
+      <input id="sDoc"></div>
+      <div id="bMot" style="display:none"><label>Motivo del ajuste</label>
+      <select id="sMot">
+        <option>Conteo físico / inventario</option>
+        <option>Corrección de error de registro</option>
+        <option>Entrega no registrada en la app</option>
+        <option>Merma, daño o vencimiento</option>
+        <option>Otro (detallar en observación)</option>
+      </select></div>
+      <label>Responsable</label>
+      <input id="sResp">
+      <label>Observación</label>
+      <input id="sObs">
+      <button class="btn ok full" id="btnStock" style="margin-top:12px" onclick="guardarStock()">Registrar ingreso</button>
+    </div>
+    <div class="card">
+      <div class="row"><h2 style="margin:0">Stock actual</h2><button class="btn sec" style="flex:none;padding:8px 12px" onclick="cargar(true)">↻</button></div>
+      <table class="st" id="tablaStock"></table>
+    </div>
+  </section>
+
+  <!-- ================= ETIQUETAS ================= -->
+  <section id="tEtiq" class="tab">
+    <div class="card">
+      <h2>Etiquetas para estantes</h2>
+      <p style="font-size:14px;color:var(--mut);margin-top:0">Marca los ítems del módulo activo (EPP o insumos) y la cantidad de copias. Se genera un PDF en tu Drive (carpeta Etiquetas) listo para imprimir y pegar. La app lee ambos tipos con la cámara del celular.</p>
+      <label style="margin-top:0">Tipo de código</label>
+      <select id="tipoCod" style="margin-bottom:10px">
+        <option value="qr">Código QR (recomendado para cámara de celular)</option>
+        <option value="barra">Código de barras (Code 128)</option>
+        <option value="ambos">Ambos en la misma etiqueta</option>
+      </select>
+      <div class="row" style="margin-bottom:6px">
+        <button class="btn sec" onclick="marcarTodas(true)">Todas</button>
+        <button class="btn sec" onclick="marcarTodas(false)">Ninguna</button>
+      </div>
+      <div id="listaEtiq"></div>
+      <button class="btn ok full" style="margin-top:12px" onclick="generarEtiquetas()">Generar PDF de etiquetas</button>
+      <a id="etiqLink" class="btn sec full" style="margin-top:8px;display:none" target="_blank" href="#">Abrir PDF de etiquetas</a>
+    </div>
+  </section>
+  <!-- ================= CONSUMO (solo insumos) ================= -->
+  <section id="tCons" class="tab">
+    <div class="card">
+      <h2>Consumo de insumos</h2>
+      <div class="row"><select id="cMes" onchange="cargarConsumo(this.value)"></select><button class="btn sec" style="flex:none;padding:10px 14px" onclick="cargarConsumo($('#cMes').value)">↻</button></div>
+      <p style="font-size:13px;color:var(--mut)">Para el informe a la empresa usa la hoja INS_RESUMEN (por insumo, por área y por trabajador) e INS_HISTORICO (mes a mes).</p>
+      <div id="cKpi" class="kpi"></div>
+    </div>
+    <div class="card"><h2>Por insumo</h2><div id="cIns"></div></div>
+    <div class="card"><h2>Por área</h2><div id="cArea"></div></div>
+  </section>
+</main>
+
+<!-- Escáner -->
+<div class="modal" id="mScan">
+  <div id="reader"></div>
+  <p id="camErr" style="display:none;color:#ffb3a7">No se pudo abrir la cámara en vivo. Usa “Tomar foto del código”.</p>
+  <div id="scanList"></div>
+  <div class="row" style="max-width:480px;margin:6px auto 0;width:100%">
+    <label class="btn sec" style="margin:0;font-size:14px">📸 Tomar foto del código
+      <input type="file" accept="image/*" capture="environment" id="foto" style="display:none">
+    </label>
+    <button class="btn ok" onclick="cerrarScanner()">Listo</button>
+  </div>
+  <div id="fileReader" style="display:none"></div>
+</div>
+
+<div class="over" id="over"><div class="spin"></div><div id="overTxt">Cargando…</div></div>
+<div id="toast"></div>
+
+<script>
+var DB = {catalogo: [], insumos: [], personal: [], areas: []};
+var MOD = 'epp';
+function CAT(){ return (MOD === 'ins' ? DB.insumos : DB.catalogo) || []; }
+function otroCat(){ return (MOD === 'ins' ? DB.catalogo : DB.insumos) || []; }
+var trab = null, items = [], stockItem = null, firmado = false;
+var scanMode = 'entrega', qr = null, lastCode = '', lastT = 0;
+
+function $(s){ return document.querySelector(s); }
+function norm(s){ return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[.\-\s]/g, ''); }
+function h(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+function toast(msg, tipo){ var t = $('#toast'); t.textContent = msg; t.className = tipo || ''; t.style.display = 'block'; clearTimeout(t._t); t._t = setTimeout(function(){ t.style.display = 'none'; }, 2600); }
+function over(on, txt){ $('#over').classList.toggle('on', on); if (txt) $('#overTxt').textContent = txt; }
+function ls(k, v){ try { if (v === undefined) return localStorage.getItem(k) || ''; localStorage.setItem(k, v); } catch(e){ return ''; } }
+function vibrar(){ try { navigator.vibrate && navigator.vibrate(80); } catch(e){} }
+function eppTxt(e){ if (e.pres) return e.epp + ' · ' + e.pres; return e.epp + (e.talla && e.talla.toLowerCase() !== 'única' && e.talla.toLowerCase() !== 'unica' ? ' · T' + e.talla : ''); }
+function buscarCod(c){ c = String(c || '').trim().toUpperCase(); return CAT().find(function(x){ return x.codigo === c; }); }
+function codOtroModulo(c){ c = String(c || '').trim().toUpperCase(); return otroCat().some(function(x){ return x.codigo === c; }); }
+function noReg(c){ toast(codOtroModulo(c) ? 'Ese código es de ' + (MOD === 'ins' ? 'EPP' : 'Insumos') + '. Cambia de módulo arriba.' : 'Código no registrado: ' + c, 'err'); }
+var NOMBRE = {epp: 'EPP', ins: 'insumos'};
+
+/* ---------- Módulo EPP / Insumos ---------- */
+function setMod(m){
+  if (m === MOD) return;
+  if (items.length && $('#resultado').style.display === 'none' && !confirm('Tienes ítems sin registrar. Al cambiar de módulo se descartan. ¿Continuar?')) return;
+  MOD = m; ls('epp_mod', m);
+  document.body.classList.toggle('ins', m === 'ins');
+  $('#swEpp').classList.toggle('on', m === 'epp'); $('#swIns').classList.toggle('on', m === 'ins');
+  $('#titulo').textContent = m === 'ins' ? 'Entrega de Insumos' : 'Entrega de EPP';
+  $('#btnReg').textContent = m === 'ins' ? '✔ Registrar entrega de insumos' : '✔ Registrar entrega y generar PDF';
+  items = []; stockItem = null;
+  if ($('#resultado').style.display !== 'none') nuevaEntrega();
+  var activo = document.querySelector('nav button.on');
+  if (m === 'epp' && activo && activo.dataset.t === 'tCons') document.querySelector('nav button[data-t="tEntrega"]').click();
+  renderItems(); renderStock(); renderStockSel(); renderEtiq();
+  if (m === 'ins') cargarConsumo();
+  setTimeout(ajustarFirma, 50);
+}
+function renderAreas(){
+  var sel = $('#area'), v = sel.value;
+  sel.innerHTML = '<option value="">— Selecciona el área —</option>' + (DB.areas || []).map(function(a){ return '<option>' + h(a) + '</option>'; }).join('');
+  if (v) sel.value = v;
+}
+
+/* ---------- Tabs ---------- */
+document.querySelectorAll('nav button').forEach(function(b){
+  b.onclick = function(){
+    document.querySelectorAll('nav button').forEach(function(x){ x.classList.remove('on'); });
+    document.querySelectorAll('.tab').forEach(function(x){ x.classList.remove('on'); });
+    b.classList.add('on'); $('#' + b.dataset.t).classList.add('on');
+    $('.fix').style.display = (b.dataset.t === 'tEntrega' && $('#formEntrega').style.display !== 'none') ? 'block' : 'none';
+    if (b.dataset.t === 'tEntrega') ajustarFirma();
+  };
+});
+
+/* ---------- Carga ---------- */
+function cargar(aviso){
+  over(true, 'Cargando datos…');
+  google.script.run.withSuccessHandler(function(d){
+    DB = d; over(false); renderAreas(); renderStock(); renderEtiq(); renderItems();
+    if (aviso) toast('Datos actualizados', 'ok');
+  }).withFailureHandler(function(e){ over(false); toast(e.message, 'err'); }).getDatos();
+}
+
+/* ---------- Buscadores ---------- */
+function buscador(inp, res, fuente, fmt, onPick){
+  $(inp).addEventListener('input', function(){
+    var q = norm(this.value), r = $(res);
+    if (q.length < 2) { r.style.display = 'none'; return; }
+    var lista = fuente().filter(function(x){ return norm(fmt.key(x)).indexOf(q) >= 0; }).slice(0, 8);
+    r.innerHTML = lista.length ? lista.map(function(x, i){ return '<div data-i="' + i + '">' + fmt.html(x) + '</div>'; }).join('') : '<div class="vacio">Sin resultados</div>';
+    r.style.display = 'block';
+    r.querySelectorAll('[data-i]').forEach(function(el){
+      el.onclick = function(){ onPick(lista[+el.dataset.i]); $(inp).value = ''; r.style.display = 'none'; };
+    });
+  });
+}
+var fmtEpp = {
+  key: function(x){ return x.epp + ' ' + x.talla + ' ' + x.codigo; },
+  html: function(x){ return '<b>' + h(eppTxt(x)) + '</b><br><small>' + h(x.codigo) + ' · stock ' + x.stock + '</small>'; }
+};
+buscador('#qTrab', '#resTrab', function(){ return DB.personal; }, {
+  key: function(x){ return x.nombre + ' ' + x.rut; },
+  html: function(x){ return '<b>' + h(x.nombre) + '</b><br><small>' + h(x.rut) + ' · ' + h(x.cargo) + '</small>'; }
+}, function(t){ trab = t; renderTrab(); });
+buscador('#qEpp', '#resEpp', CAT, fmtEpp, function(e){ agregar(e.codigo); });
+buscador('#qStock', '#resStock', CAT, fmtEpp, function(e){ stockItem = e; renderStockSel(); });
+
+function renderTrab(){
+  if (!trab) { $('#trabSel').innerHTML = ''; $('#trabBus').style.display = 'block'; return; }
+  $('#trabBus').style.display = 'none';
+  $('#trabSel').innerHTML = '<div class="sel"><div><b>' + h(trab.nombre) + '</b><small>' + h(trab.rut) + ' · ' + h(trab.cargo) + ' · ' + h(trab.turno) + '</small></div><button class="x" onclick="trab=null;renderTrab()">✕</button></div>';
+}
+
+/* ---------- Ítems de la entrega ---------- */
+function agregar(codigo){
+  var e = buscarCod(codigo);
+  if (!e) { noReg(codigo); return false; }
+  var it = items.find(function(x){ return x.codigo === e.codigo; });
+  if (it) it.cant++; else items.push({codigo: e.codigo, cant: 1});
+  vibrar(); renderItems();
+  toast('+1 ' + eppTxt(e), 'ok');
+  return true;
+}
+function cambiar(i, d){ items[i].cant += d; if (items[i].cant < 1) items.splice(i, 1); renderItems(); }
+function renderItems(){
+  if (!items.length) { $('#items').innerHTML = '<div class="vacio">Aún no hay ' + NOMBRE[MOD] + ' agregados</div>'; renderScanList(); return; }
+  $('#items').innerHTML = items.map(function(it, i){
+    var e = buscarCod(it.codigo) || {epp: it.codigo, talla: '', stock: 0};
+    var w = it.cant > e.stock ? '<span class="warn"> · stock insuficiente (' + e.stock + ')</span>' : '';
+    return '<div class="item"><div class="info"><b>' + h(eppTxt(e)) + '</b><small>' + h(it.codigo) + ' · stock ' + e.stock + w + '</small></div>' +
+      '<div class="qty"><button onclick="cambiar(' + i + ',-1)">−</button><span>' + it.cant + '</span><button onclick="cambiar(' + i + ',1)">+</button></div></div>';
+  }).join('');
+  renderScanList();
+}
+function renderScanList(){
+  $('#scanList').innerHTML = scanMode === 'entrega' && items.length
+    ? items.map(function(it){ var e = buscarCod(it.codigo) || {epp: it.codigo, talla: ''}; return '✔ ' + h(eppTxt(e)) + ' × ' + it.cant; }).join('<br>')
+    : '';
+}
+
+/* ---------- Firma ---------- */
+var cv = $('#firma'), ctx = cv.getContext('2d'), dib = false, ult = null;
+function ajustarFirma(){
+  if (firmado) return;
+  var r = cv.getBoundingClientRect(); if (!r.width) return;
+  var dpr = window.devicePixelRatio || 1;
+  cv.width = r.width * dpr; cv.height = r.height * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, r.width, r.height);
+  ctx.lineWidth = 2.4; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = '#0a1a3a';
+}
+function limpiarFirma(){ firmado = false; ajustarFirma(); }
+function pos(ev){ var r = cv.getBoundingClientRect(); return {x: ev.clientX - r.left, y: ev.clientY - r.top}; }
+cv.addEventListener('pointerdown', function(ev){ ev.preventDefault(); dib = true; ult = pos(ev); try { cv.setPointerCapture(ev.pointerId); } catch(e){} });
+cv.addEventListener('pointermove', function(ev){
+  if (!dib) return; ev.preventDefault();
+  var p = pos(ev); ctx.beginPath(); ctx.moveTo(ult.x, ult.y); ctx.lineTo(p.x, p.y); ctx.stroke(); ult = p; firmado = true;
+});
+['pointerup', 'pointercancel', 'pointerleave'].forEach(function(t){ cv.addEventListener(t, function(){ dib = false; }); });
+window.addEventListener('resize', ajustarFirma);
+function firmaPng(){
+  var w = 600, hgt = Math.round(cv.height / cv.width * w);
+  var c = document.createElement('canvas'); c.width = w; c.height = hgt;
+  var x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, w, hgt); x.drawImage(cv, 0, 0, w, hgt);
+  return c.toDataURL('image/png');
+}
+
+/* ---------- Registrar ---------- */
+function registrar(){
+  if (MOD === 'ins') return registrarIns();
+  if (!trab) return toast('Selecciona al trabajador', 'err');
+  if (!items.length) return toast('Agrega al menos un EPP', 'err');
+  var ent = $('#entregador').value.trim();
+  if (!ent) return toast('Indica quién entrega', 'err');
+  if (!firmado) return toast('Falta la firma del trabajador', 'err');
+  var insuf = items.filter(function(it){ var e = buscarCod(it.codigo); return e && it.cant > e.stock; });
+  if (insuf.length && !confirm('Hay EPP con stock insuficiente en la planilla. ¿Registrar igual? (el stock quedará negativo)')) return;
+  ls('epp_entregador', ent);
+  $('#btnReg').disabled = true;
+  over(true, 'Registrando y generando PDF…');
+  google.script.run.withSuccessHandler(function(r){
+    over(false); $('#btnReg').disabled = false;
+    $('#formEntrega').style.display = 'none'; $('.fix').style.display = 'none';
+    $('#resultado').style.display = 'block';
+    $('#rFolio').innerHTML = 'Entrega registrada<br>' + h(r.folio);
+    $('#rTxt').textContent = trab.nombre + ' · ' + items.reduce(function(a, b){ return a + b.cant; }, 0) + ' EPP';
+    $('#rPdf').href = r.url;
+    $('#rAlertas').innerHTML = r.alertas.length ? '<div class="alerta"><b>Stock bajo el mínimo:</b><br>' + r.alertas.map(h).join('<br>') + '</div>' : '';
+    window.scrollTo(0, 0);
+    cargarSilencioso();
+  }).withFailureHandler(function(e){
+    over(false); $('#btnReg').disabled = false; toast(e.message, 'err');
+  }).registrarEntrega({
+    rut: trab.rut, items: items.map(function(i){ return {codigo: i.codigo, cantidad: i.cant}; }),
+    motivo: $('#motivo').value, obs: $('#obs').value.trim(), entregadoPor: ent, firma: firmaPng()
+  });
+}
+function registrarIns(){
+  var area = $('#area').value;
+  if (!area) return toast('Selecciona el área', 'err');
+  if (!trab) return toast('Selecciona al trabajador', 'err');
+  if (!items.length) return toast('Agrega al menos un insumo', 'err');
+  var ent = $('#entregador').value.trim();
+  if (!ent) return toast('Indica quién entrega', 'err');
+  var insuf = items.filter(function(it){ var e = buscarCod(it.codigo); return e && it.cant > e.stock; });
+  if (insuf.length && !confirm('Hay insumos con stock insuficiente en la planilla. ¿Registrar igual? (el stock quedará negativo)')) return;
+  ls('epp_entregador', ent);
+  $('#btnReg').disabled = true;
+  over(true, 'Registrando entrega…');
+  google.script.run.withSuccessHandler(function(r){
+    over(false); $('#btnReg').disabled = false;
+    $('#formEntrega').style.display = 'none'; $('.fix').style.display = 'none';
+    $('#resultado').style.display = 'block';
+    $('#rFolio').innerHTML = 'Entrega registrada<br>' + h(r.folio);
+    $('#rTxt').textContent = area + ' · ' + trab.nombre + ' · ' + items.reduce(function(a, b){ return a + b.cant; }, 0) + ' unidades';
+    $('#rAlertas').innerHTML = r.alertas.length ? '<div class="alerta"><b>Stock bajo el mínimo:</b><br>' + r.alertas.map(h).join('<br>') + '</div>' : '';
+    window.scrollTo(0, 0);
+    cargarSilencioso(); cargarConsumo($('#cMes').value);
+  }).withFailureHandler(function(e){
+    over(false); $('#btnReg').disabled = false; toast(e.message, 'err');
+  }).registrarInsumos({
+    area: area, rut: trab.rut, items: items.map(function(i){ return {codigo: i.codigo, cantidad: i.cant}; }),
+    obs: $('#obs').value.trim(), entregadoPor: ent
+  });
+}
+function cargarSilencioso(){ google.script.run.withSuccessHandler(function(d){ DB = d; renderAreas(); renderStock(); renderEtiq(); }).getDatos(); }
+
+/* ---------- Consumo de insumos ---------- */
+function fmtN(n){ return (Math.round(n * 100) / 100).toLocaleString('es-CL'); }
+function cargarConsumo(mes){
+  google.script.run.withSuccessHandler(renderConsumo).withFailureHandler(function(e){ toast(e.message, 'err'); }).consumoInsumos(mes || '');
+}
+function nombreMes(m){
+  var p = m.split('-'), n = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+  return p.length === 2 ? n[+p[1] - 1] + ' ' + p[0] : m;
+}
+function tablaCons(lista){
+  if (!lista.length) return '<div class="vacio">Sin entregas en el mes</div>';
+  return '<table class="st"><tr><th>Insumo</th><th style="text-align:right">Unid.</th><th style="text-align:right">Consumo</th></tr>' +
+    lista.map(function(x){ return '<tr><td>' + h(x.insumo) + '<br><small style="color:var(--mut)">' + h(x.pres) + '</small></td><td class="n">' + fmtN(x.cant) + ' <small>' + h(x.unidad) + '</small></td><td class="n">' + fmtN(x.total) + ' ' + h(x.medida) + '</td></tr>'; }).join('') + '</table>';
+}
+function renderConsumo(r){
+  $('#cMes').innerHTML = r.meses.map(function(m){ return '<option value="' + h(m) + '"' + (m === r.mes ? ' selected' : '') + '>' + h(nombreMes(m)) + '</option>'; }).join('');
+  var unid = r.porInsumo.reduce(function(a, x){ return a + x.cant; }, 0);
+  $('#cKpi').innerHTML = '<div><b>' + r.entregas + '</b><small>entregas</small></div><div><b>' + fmtN(unid) + '</b><small>unidades</small></div><div><b>' + r.porArea.length + '</b><small>áreas</small></div>';
+  $('#cIns').innerHTML = tablaCons(r.porInsumo);
+  $('#cArea').innerHTML = r.porArea.length ? r.porArea.map(function(a){ return '<h3 class="area">' + h(a.area) + '</h3>' + tablaCons(a.items); }).join('') : '<div class="vacio">Sin entregas en el mes</div>';
+}
+function nuevaEntrega(){
+  trab = null; items = []; $('#obs').value = ''; $('#motivo').selectedIndex = 0;
+  $('#resultado').style.display = 'none'; $('#formEntrega').style.display = 'block'; $('.fix').style.display = 'block';
+  renderTrab(); renderItems(); firmado = false; ajustarFirma(); window.scrollTo(0, 0);
+}
+
+/* ---------- Escáner ---------- */
+function abrirScanner(modo){
+  scanMode = modo; lastCode = ''; renderScanList();
+  $('#camErr').style.display = 'none'; $('#mScan').classList.add('on');
+  try {
+    qr = new Html5Qrcode('reader', {experimentalFeatures: {useBarCodeDetectorIfSupported: true}});
+    qr.start({facingMode: 'environment'}, {fps: 12, qrbox: function(w, hh){ return {width: Math.floor(w * 0.85), height: Math.floor(Math.min(hh, w) * 0.55)}; }},
+      onScan, function(){}).catch(function(){ $('#camErr').style.display = 'block'; });
+  } catch(e) { $('#camErr').style.display = 'block'; }
+}
+function onScan(txt){
+  txt = String(txt).trim();
+  var now = Date.now();
+  // Mientras el mismo código siga en cámara no se vuelve a contar; para sumar otra unidad, sácalo del cuadro y vuelve a apuntar (o usa +).
+  if (txt === lastCode && now - lastT < 1500) { lastT = now; return; }
+  lastCode = txt; lastT = now;
+  if (scanMode === 'entrega') { agregar(txt); }
+  else {
+    var e = buscarCod(txt);
+    if (!e) return noReg(txt);
+    stockItem = e; renderStockSel(); vibrar(); cerrarScanner();
+  }
+}
+function cerrarScanner(){
+  var q = qr; qr = null;
+  $('#mScan').classList.remove('on');
+  if (q) { try { q.stop().then(function(){ q.clear(); }).catch(function(){}); } catch(e){} }
+}
+$('#foto').addEventListener('change', function(){
+  var f = this.files[0]; if (!f) return;
+  var sc = new Html5Qrcode('fileReader');
+  sc.scanFile(f, false).then(function(t){ onScan(t); }).catch(function(){ toast('No se detectó código en la foto. Acércate y enfoca bien.', 'err'); });
+  this.value = '';
+});
+
+/* ---------- Stock ---------- */
+function renderStockSel(){
+  setTimeout(previewAjuste, 0);
+  $('#stockSel').innerHTML = stockItem ? '<div class="sel"><div><b>' + h(eppTxt(stockItem)) + '</b><small>' + h(stockItem.codigo) + ' · stock actual ' + stockItem.stock + '</small></div><button class="x" onclick="stockItem=null;renderStockSel()">✕</button></div>' : '';
+}
+function renderStock(){
+  var l = CAT().slice().sort(function(a, b){ return a.epp.localeCompare(b.epp) || a.talla.localeCompare(b.talla); });
+  $('#tablaStock').innerHTML = '<tr><th>' + (MOD === 'ins' ? 'Insumo' : 'EPP') + '</th><th>Código</th><th style="text-align:right">Stock</th></tr>' +
+    l.map(function(e){ return '<tr data-c="' + h(e.codigo) + '" class="' + (e.stock <= e.min ? 'bajo' : '') + '"><td>' + h(eppTxt(e)) + '</td><td>' + h(e.codigo) + '</td><td class="n">' + e.stock + '</td></tr>'; }).join('');
+  if (stockItem) { stockItem = buscarCod(stockItem.codigo) || null; renderStockSel(); }
+  document.querySelectorAll('#tablaStock tr[data-c]').forEach(function(tr){
+    tr.onclick = function(){ stockItem = buscarCod(tr.dataset.c); renderStockSel(); window.scrollTo({top: 0, behavior: 'smooth'}); };
+  });
+}
+var stockModo = 'ingreso';
+function modoStock(m){
+  stockModo = m;
+  $('#mIng').classList.toggle('on', m === 'ingreso'); $('#mAju').classList.toggle('on', m === 'ajuste');
+  $('#lCant').textContent = m === 'ingreso' ? 'Cantidad que ingresa' : 'Stock real contado en bodega';
+  $('#sAyuda').textContent = m === 'ingreso' ? 'Suma unidades al stock (compras, reposición de bodega).'
+    : 'Reemplaza el stock del sistema por lo que contaste físicamente. La diferencia queda registrada en los movimientos.';
+  $('#bDoc').style.display = m === 'ingreso' ? 'block' : 'none';
+  $('#bMot').style.display = m === 'ajuste' ? 'block' : 'none';
+  $('#btnStock').textContent = m === 'ingreso' ? 'Registrar ingreso' : 'Registrar ajuste';
+  $('#sCant').value = ''; previewAjuste();
+}
+function previewAjuste(){
+  var d = $('#sDiff');
+  if (stockModo !== 'ajuste' || !stockItem || $('#sCant').value === '') { d.style.display = 'none'; return; }
+  var real = parseInt($('#sCant').value, 10), dif = real - stockItem.stock;
+  d.innerHTML = 'Sistema: <b>' + stockItem.stock + '</b> → Real: <b>' + real + '</b> &nbsp;(' + (dif > 0 ? '+' : '') + dif + ')';
+  d.style.display = 'block';
+}
+function guardarStock(){
+  if (!stockItem) return toast('Selecciona un ítem', 'err');
+  var c = parseInt($('#sCant').value, 10);
+  var resp = $('#sResp').value.trim(); if (!resp) return toast('Indica el responsable', 'err');
+  var obs = $('#sObs').value.trim();
+  ls('epp_entregador', resp);
+  var fin = function(r, txt){
+    over(false); toast(txt + ' Stock: ' + r.stock, 'ok');
+    $('#sCant').value = ''; $('#sDoc').value = ''; $('#sObs').value = ''; stockItem = null; renderStockSel(); previewAjuste(); cargarSilencioso();
+  };
+  var err = function(e){ over(false); toast(e.message, 'err'); };
+  if (stockModo === 'ingreso') {
+    if (!(c > 0)) return toast('Cantidad inválida', 'err');
+    over(true, 'Registrando ingreso…');
+    google.script.run.withSuccessHandler(function(r){ fin(r, 'Ingreso registrado.'); }).withFailureHandler(err)
+      .ingresarStock({mod: MOD, codigo: stockItem.codigo, cantidad: c, documento: $('#sDoc').value.trim(), responsable: resp, obs: obs});
+  } else {
+    if (!(c >= 0)) return toast('Ingresa el stock real contado (0 o más)', 'err');
+    var mot = $('#sMot').value;
+    if (mot.indexOf('Otro') === 0 && !obs) return toast('Detalla el motivo en la observación', 'err');
+    var dif = c - stockItem.stock;
+    if (!confirm('Ajustar ' + eppTxt(stockItem) + '\nSistema: ' + stockItem.stock + ' → Real: ' + c + ' (' + (dif > 0 ? '+' : '') + dif + ')\n\n¿Confirmar?')) return;
+    over(true, 'Registrando ajuste…');
+    google.script.run.withSuccessHandler(function(r){ fin(r, 'Ajuste registrado (' + (r.diferencia > 0 ? '+' : '') + r.diferencia + ').'); }).withFailureHandler(err)
+      .ajustarStock({mod: MOD, codigo: stockItem.codigo, stockReal: c, motivo: mot, responsable: resp, obs: obs});
+  }
+}
+
+/* ---------- Etiquetas ---------- */
+function renderEtiq(){
+  var prev = {};
+  document.querySelectorAll('#listaEtiq .lbl').forEach(function(el){ prev[el.dataset.c] = {on: el.querySelector('[type=checkbox]').checked, n: el.querySelector('[type=number]').value}; });
+  $('#listaEtiq').innerHTML = CAT().map(function(e){
+    var p = prev[e.codigo] || {on: false, n: 1};
+    return '<div class="lbl" data-c="' + h(e.codigo) + '"><input type="checkbox"' + (p.on ? ' checked' : '') + '><div class="info"><b>' + h(eppTxt(e)) + '</b><br><small>' + h(e.codigo) + '</small></div><input type="number" min="1" max="50" value="' + h(p.n) + '" title="Copias"></div>';
+  }).join('') || '<div class="vacio">El catálogo está vacío</div>';
+}
+function marcarTodas(v){ document.querySelectorAll('#listaEtiq [type=checkbox]').forEach(function(c){ c.checked = v; }); }
+function qrUrl(txt){
+  var d = document.createElement('div');
+  new QRCode(d, {text: txt, width: 300, height: 300, correctLevel: QRCode.CorrectLevel.M});
+  var c = d.querySelector('canvas'); return c.toDataURL('image/png');
+}
+function barUrl(txt){
+  var c = document.createElement('canvas');
+  JsBarcode(c, txt, {format: 'CODE128', width: 3, height: 90, margin: 12, displayValue: false});
+  return c.toDataURL('image/png');
+}
+function generarEtiquetas(){
+  var sel = [], tipo = $('#tipoCod').value;
+  document.querySelectorAll('#listaEtiq .lbl').forEach(function(el){
+    if (!el.querySelector('[type=checkbox]').checked) return;
+    var e = buscarCod(el.dataset.c);
+    sel.push({codigo: e.codigo, epp: e.epp, talla: e.talla, pres: e.pres, copias: el.querySelector('[type=number]').value, tipo: tipo, img: tipo === 'barra' ? '' : qrUrl(e.codigo), bar: tipo === 'qr' ? '' : barUrl(e.codigo)});
+  });
+  if (!sel.length) return toast('Marca al menos un ítem', 'err');
+  over(true, 'Generando etiquetas…');
+  google.script.run.withSuccessHandler(function(url){
+    over(false); var a = $('#etiqLink'); a.href = url; a.style.display = 'flex'; toast('PDF de etiquetas creado', 'ok');
+  }).withFailureHandler(function(e){ over(false); toast(e.message, 'err'); }).etiquetasPdf(sel, MOD);
+}
+
+/* ---------- Inicio ---------- */
+$('#entregador').value = ls('epp_entregador');
+$('#sResp').value = ls('epp_entregador');
+renderTrab(); renderItems(); ajustarFirma();
+google.script.run.withSuccessHandler(function(d){
+  DB = d; over(false); renderAreas(); renderStock(); renderEtiq(); renderItems();
+  if (ls('epp_mod') === 'ins') setMod('ins');
+}).withFailureHandler(function(e){ over(false); toast(e.message, 'err'); }).getDatos();
+over(true, 'Cargando datos…');
+</script>
+</body>
+</html>
