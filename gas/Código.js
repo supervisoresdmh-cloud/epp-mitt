@@ -8,6 +8,7 @@
  * Hojas INSUMOS:  INS_CATALOGO · INS_ENTREGAS · INS_MOVIMIENTOS · INS_RESUMEN · INS_HISTORICO
  * Compartidas:    PERSONAL · AREAS
  *
+ * v5.5: doGet permite mostrarse dentro de un iframe (apps.mitt.cl).
  * v5.4: etiquetas: el PDF se descarga/comparte desde la app (sin pedir acceso a Drive).
  * v5.1: botón Ver PDF / Compartir: el PDF se descarga al celular desde la app (sin pedir acceso a Drive).
  * v5: la pantalla vive solo en GitHub Pages (doGet redirige) y acceso por usuario (RUT + PIN personal, hoja USUARIOS).
@@ -111,7 +112,8 @@ function doGet(e) {
     '</body></html>';
   return HtmlService.createHtmlOutput(html)
     .setTitle('EPP MITT')
-    .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
 /* ---------------- Usuarios y sesiones ----------------
