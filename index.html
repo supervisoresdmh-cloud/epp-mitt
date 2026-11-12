@@ -14,8 +14,45 @@
 <link rel="apple-touch-icon" href="icon-192.png">
 <title>EPP MITT</title>
 <script>
+/* ===== Almacén de datos del celular =====
+ * Si la app corre dentro del portal apps.mitt.cl (iframe), el iPhone borra lo que guarda la página incrustada.
+ * Por eso cada dato epp_* también se guarda en el portal (que sí persiste), vía postMessage, y al abrir se recupera de ahí.
+ */
+var EST = (function(){
+  var mem = {}, padre = '', enIframe = false;
+  try { enIframe = window.self !== window.top; } catch(e){ enIframe = true; }
+  var PORTAL = /^https:\/\/([a-z0-9-]+\.)*mitt\.cl$/i;
+  function get(k){ try { var v = localStorage.getItem(k); if (v !== null) return v; } catch(e){} return mem[k] == null ? '' : mem[k]; }
+  function set(k, v){
+    v = v == null ? '' : String(v); mem[k] = v;
+    try { if (v === '') localStorage.removeItem(k); else localStorage.setItem(k, v); } catch(e){}
+    if (padre && k.indexOf('epp_') === 0) try { window.parent.postMessage({mitt: 'epp', op: 'set', k: k, v: v}, padre); } catch(e){}
+  }
+  /** Al abrir: pide al portal los datos guardados. Si no hay portal o no responde, sigue igual. */
+  function sincronizar(listo){
+    if (!enIframe) return listo();
+    var hecho = false, id = String(Date.now());
+    function fin(){ if (hecho) return; hecho = true; window.removeEventListener('message', rec); listo(); }
+    function rec(e){
+      if (!PORTAL.test(e.origin) || !e.data || e.data.mitt !== 'epp' || e.data.op !== 'data' || e.data.id !== id) return;
+      padre = e.origin;
+      var d = e.data.data || {};
+      Object.keys(d).forEach(function(k){
+        if (k.indexOf('epp_') !== 0) return;
+        mem[k] = d[k]; try { localStorage.setItem(k, d[k]); } catch(x){}
+      });
+      // lo que haya solo en el iframe (sesión de antes de esta versión) se respalda en el portal
+      try { for (var i = 0; i < localStorage.length; i++) { var k = localStorage.key(i); if (k.indexOf('epp_') === 0 && !(k in d)) set(k, localStorage.getItem(k)); } } catch(x){}
+      fin();
+    }
+    window.addEventListener('message', rec);
+    try { window.parent.postMessage({mitt: 'epp', op: 'get', id: id}, '*'); } catch(e){ return fin(); }
+    setTimeout(fin, 1500);
+  }
+  return {get: get, set: set, sincronizar: sincronizar, enIframe: function(){ return enIframe; }, conPortal: function(){ return !!padre; }};
+})();
 /* Tema: 'auto' sigue al celular; 'light' o 'dark' lo fija el usuario. Se aplica antes de pintar para evitar parpadeo. */
-function temaGuardado(){ try { return localStorage.getItem('epp_tema') || 'auto'; } catch(e){ return 'auto'; } }
+function temaGuardado(){ return EST.get('epp_tema') || 'auto'; }
 function aplicarTema(t){
   var r = document.documentElement;
   if (t === 'light' || t === 'dark') r.setAttribute('data-theme', t); else r.removeAttribute('data-theme');
@@ -32,7 +69,7 @@ var API_URL = 'https://script.google.com/macros/s/AKfycbx21GkRzYnnBNyLddiAas4wyW
 
 /* Puente: imita google.script.run, pero llama a la Sheet por internet. */
 (function(){
-  function token(){ try { return localStorage.getItem('epp_token') || ''; } catch(e){ return ''; } }
+  function token(){ return EST.get('epp_token'); }
   try { localStorage.removeItem('epp_pin'); } catch(e){}   // PIN general antiguo: ya no se usa
   try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch(e){}   // que el celular no borre la sesión guardada
   function llamar(fn, args, ok, fail){
@@ -41,9 +78,10 @@ var API_URL = 'https://script.google.com/macros/s/AKfycbx21GkRzYnnBNyLddiAas4wyW
       .then(function(r){ return r.json(); })
       .then(function(j){
         if (j.ok) { ok && ok(j.data); return; }
-        if (j.error === 'SESION' || j.error === 'CAMBIO_PIN') {
-          window.sesionInvalida && window.sesionInvalida(j.error);
-          fail && fail({message: j.error === 'SESION' ? 'Tu sesión terminó. Ingresa de nuevo.' : 'Primero crea tu PIN personal.'});
+        var esSes = String(j.error).indexOf('SESION') === 0;
+        if (esSes || j.error === 'CAMBIO_PIN') {
+          window.sesionInvalida && window.sesionInvalida(esSes ? 'SESION' : j.error, j.error);
+          fail && fail({message: esSes ? 'Tu sesión terminó. Ingresa de nuevo.' : 'Primero crea tu PIN personal.'});
           return;
         }
         fail && fail({message: j.error});
@@ -243,7 +281,7 @@ var API_URL = 'https://script.google.com/macros/s/AKfycbx21GkRzYnnBNyLddiAas4wyW
 <header>
   <div class="barra-in">
     <div class="marca"><span class="placa">MITT</span><span id="titulo">Entrega de EPP e insumos</span></div>
-    <small class="ver"><span class="faena">Finning DMH · </span><span id="ver">v5.7</span></small>
+    <small class="ver"><span class="faena">Finning DMH · </span><span id="ver">v5.9</span></small>
   </div>
   <div class="usr" id="usr"></div>
   <div class="modsw"><button id="swEpp" class="on" onclick="setMod('epp')">EPP</button><button id="swIns" onclick="setMod('ins')">Insumos</button></div>
@@ -442,6 +480,7 @@ var API_URL = 'https://script.google.com/macros/s/AKfycbx21GkRzYnnBNyLddiAas4wyW
       <label>PIN</label>
       <input id="lgPin" type="password" inputmode="numeric" maxlength="8" autocomplete="current-password">
       <button class="btn ok full" style="margin-top:16px" onclick="ingresar()">Ingresar</button>
+      <p id="diag" class="nota" style="font-size:12px"></p>
       <p class="nota">¿Primera vez o no tienes PIN? Pide al supervisor a cargo que te registre en la hoja USUARIOS.</p>
       <button class="btn sec full temaBtn" style="margin-top:8px" onclick="cambiarTema()"></button>
     </div>
@@ -478,7 +517,7 @@ function norm(s){ return String(s || '').normalize('NFD').replace(/[\u0300-\u036
 function h(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
 function toast(msg, tipo){ var t = $('#toast'); t.textContent = msg; t.className = tipo || ''; t.style.display = 'block'; clearTimeout(t._t); t._t = setTimeout(function(){ t.style.display = 'none'; }, 3200); }
 function over(on, txt){ $('#over').classList.toggle('on', on); if (txt) $('#overTxt').textContent = txt; }
-function ls(k, v){ try { if (v === undefined) return localStorage.getItem(k) || ''; localStorage.setItem(k, v); } catch(e){ return ''; } }
+function ls(k, v){ if (v === undefined) return EST.get(k); EST.set(k, v); }
 function vibrar(){ try { navigator.vibrate && navigator.vibrate(80); } catch(e){} }
 function eppTxt(e){ if (e.pres) return e.epp + ' · ' + e.pres; return e.epp + (e.talla && e.talla.toLowerCase() !== 'única' && e.talla.toLowerCase() !== 'unica' ? ' · T' + e.talla : ''); }
 function buscarCod(c){ c = String(c || '').trim().toUpperCase(); return CAT().find(function(x){ return x.codigo === c; }); }
@@ -1029,6 +1068,18 @@ function descargarEtiq(){ if (ETIQ) descargar(ETIQ); }
 function compartirEtiq(){ if (ETIQ) compartir(ETIQ, 'Etiquetas EPP MITT'); }
 
 /* ---------- Acceso por usuario ---------- */
+/* Diagnóstico de sesión: dice si el celular perdió lo guardado o si el servidor rechazó la sesión. */
+function diagLogin(motivo){
+  var app = (window.navigator.standalone === true) || (window.matchMedia && matchMedia('(display-mode: standalone)').matches);
+  var mem = 'falla';
+  try { localStorage.setItem('epp_t', '1'); mem = localStorage.getItem('epp_t') === '1' ? 'ok' : 'falla'; localStorage.removeItem('epp_t'); } catch(e){}
+  var marca = ls('epp_marca'), txt;
+  if (motivo) txt = 'El servidor rechazó la sesión guardada (' + motivo.replace('SESION:', '') + ').';
+  else if (marca) txt = 'No hay sesión guardada, pero el celular sí conserva otros datos (último ingreso ' + marca + ').';
+  else txt = 'El celular no conserva datos entre aperturas.';
+  var donde = EST.enIframe() ? (EST.conPortal() ? 'dentro del portal (respaldo activo)' : 'dentro de otra página SIN respaldo') : (app ? 'app instalada' : 'navegador (no instalada)');
+  $('#diag').textContent = 'Diagnóstico · ' + donde + ' · memoria ' + mem + ' · ' + txt;
+}
 function mostrarLogin(){
   $('#auth').classList.add('on'); $('#lgForm').style.display = 'block'; $('#cpForm').style.display = 'none';
   $('#lgRut').value = ls('epp_rut'); $('#lgPin').value = '';
@@ -1042,10 +1093,10 @@ function mostrarCambio(obligatorio){
   setTimeout(function(){ $('#cpAct').focus(); }, 50);
 }
 function cancelarCambio(){ $('#auth').classList.remove('on'); }
-window.sesionInvalida = function(tipo){
+window.sesionInvalida = function(tipo, detalle){
   over(false);
   if (tipo === 'CAMBIO_PIN') return mostrarCambio(true);
-  ls('epp_token', ''); mostrarLogin();
+  ls('epp_token', ''); mostrarLogin(); diagLogin(detalle || 'SESION');
 };
 function ingresar(){
   var rut = $('#lgRut').value.trim(), pin = $('#lgPin').value.trim();
@@ -1054,7 +1105,7 @@ function ingresar(){
   over(true, 'Ingresando…');
   google.script.run.withSuccessHandler(function(r){
     over(false);
-    ls('epp_token', r.token); ls('epp_nombre', r.nombre); ls('epp_rol', r.rol || ''); ls('epp_rut', fmtR(rut));
+    ls('epp_token', r.token); ls('epp_marca', new Date().toLocaleString('es-CL')); ls('epp_nombre', r.nombre); ls('epp_rol', r.rol || ''); ls('epp_rut', fmtR(rut));
     if (r.debeCambiar) return mostrarCambio(true);
     entrar();
   }).withFailureHandler(function(e){ over(false); $('#lgPin').value = ''; toast(e.message, 'err'); })
@@ -1099,7 +1150,7 @@ var TEMAS = {auto: 'Tema: automático', light: 'Tema: claro', dark: 'Tema: oscur
 function pintarTema(){ document.querySelectorAll('.temaBtn').forEach(function(b){ b.textContent = TEMAS[temaGuardado()]; }); }
 function cambiarTema(){
   var orden = ['auto', 'light', 'dark'], t = orden[(orden.indexOf(temaGuardado()) + 1) % 3];
-  try { localStorage.setItem('epp_tema', t); } catch(e){}
+  EST.set('epp_tema', t);
   aplicarTema(t); pintarTema();
   toast(t === 'auto' ? 'Tema automático (sigue al celular)' : t === 'light' ? 'Tema claro' : 'Tema oscuro', 'ok');
 }
@@ -1108,7 +1159,10 @@ pintarTema();
 
 /* ---------- Inicio ---------- */
 renderTrab(); renderItems(); ajustarFirma();
-if (ls('epp_token')) entrar(); else mostrarLogin();
+EST.sincronizar(function(){
+  aplicarTema(temaGuardado()); if (typeof pintarTema === 'function') pintarTema();
+  if (ls('epp_token')) entrar(); else { mostrarLogin(); diagLogin(''); }
+});
 </script>
 </body>
 </html>
