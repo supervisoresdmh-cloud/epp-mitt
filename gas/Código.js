@@ -8,6 +8,7 @@
  * Hojas INSUMOS:  INS_CATALOGO · INS_ENTREGAS · INS_MOVIMIENTOS · INS_RESUMEN · INS_HISTORICO
  * Compartidas:    PERSONAL · AREAS
  *
+ * v5.8: diagnóstico de sesión (motivo del rechazo) visible en la pantalla de login.
  * v5.7: la sesión ya no expira a los 7 días: se renueva con cada uso (60 días sin usar). Reset de PIN cierra sesiones.
  * v5.6: entrega combinada (registrarTurno): EPP + insumos al mismo trabajador en una sola llamada.
  * v5.5: doGet permite mostrarse dentro de un iframe (apps.mitt.cl).
@@ -162,16 +163,17 @@ function fallos_(rut, sumar) {
   return n + (sumar ? 1 : 0);
 }
 function sesion_(token) {
-  if (!token) throw new Error('SESION');
+  // El motivo va después de "SESION:" solo para diagnóstico en la pantalla de login.
+  if (!token) throw new Error('SESION:sin-token');
   const props = PropertiesService.getScriptProperties();
   const raw = props.getProperty('SES_' + token);
-  if (!raw) throw new Error('SESION');
+  if (!raw) throw new Error('SESION:no-existe');
   const s = JSON.parse(raw);
-  if (s.exp < Date.now()) { props.deleteProperty('SES_' + token); throw new Error('SESION'); }
+  if (s.exp < Date.now()) { props.deleteProperty('SES_' + token); throw new Error('SESION:expirada'); }
   const u = usuario_(s.rut);
-  if (!u || !u.activo) { props.deleteProperty('SES_' + token); throw new Error('SESION'); }
+  if (!u || !u.activo) { props.deleteProperty('SES_' + token); throw new Error('SESION:usuario-inactivo'); }
   // PIN reseteado en la hoja (vuelve a ser provisorio): se cierran sus sesiones abiertas (ej. celular perdido).
-  if (u.pin !== CFG.MARCA_PIN && !s.cambio) { props.deleteProperty('SES_' + token); throw new Error('SESION'); }
+  if (u.pin !== CFG.MARCA_PIN && !s.cambio) { props.deleteProperty('SES_' + token); throw new Error('SESION:pin-reseteado'); }
   // Sesión deslizante, como una app normal: cada uso la extiende (como máximo una escritura al día).
   const nueva = Date.now() + CFG.SESION_DIAS * 864e5;
   if (nueva - s.exp > 864e5) { s.exp = nueva; props.setProperty('SES_' + token, JSON.stringify(s)); }
