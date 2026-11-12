@@ -8,6 +8,7 @@
  * Hojas INSUMOS:  INS_CATALOGO · INS_ENTREGAS · INS_MOVIMIENTOS · INS_RESUMEN · INS_HISTORICO
  * Compartidas:    PERSONAL · AREAS
  *
+ * v5.11: CATALOGO con columnas Marca (H) y Modelo (I); en la app y en el PDF de entrega (columnas separadas).
  * v5.8: diagnóstico de sesión (motivo del rechazo) visible en la pantalla de login.
  * v5.7: la sesión ya no expira a los 7 días: se renueva con cada uso (60 días sin usar). Reset de PIN cierra sesiones.
  * v5.6: entrega combinada (registrarTurno): EPP + insumos al mismo trabajador en una sola llamada.
@@ -42,7 +43,7 @@ const CFG = {
 
 const H = {
   // --- EPP ---
-  CAT: { n: 'CATALOGO', h: ['Código', 'EPP', 'Talla', 'Unidad', 'Stock', 'Stock mínimo', 'Activo'] },
+  CAT: { n: 'CATALOGO', h: ['Código', 'EPP', 'Talla', 'Unidad', 'Stock', 'Stock mínimo', 'Activo', 'Marca', 'Modelo'] },
   ENT: { n: 'ENTREGAS', h: ['Folio', 'Fecha', 'Hora', 'RUT', 'Nombre', 'Cargo', 'Turno', 'Código', 'EPP', 'Talla', 'Cantidad', 'Motivo', 'Entregado por', 'Observación', 'PDF'] },
   MOV: { n: 'MOVIMIENTOS', h: ['Fecha', 'Hora', 'Tipo', 'Código', 'EPP', 'Talla', 'Cantidad', 'Stock resultante', 'Documento / Folio', 'Responsable', 'Observación'] },
   // --- Compartidas ---
@@ -503,7 +504,9 @@ function getDatos() {
       pres: '',
       unidad: String(r[3] || 'UN').trim(),
       stock: Number(r[4]) || 0,
-      min: Number(r[5]) || 0
+      min: Number(r[5]) || 0,
+      marca: txtMM_(r[7]),
+      modelo: txtMM_(r[8])
     }));
   const insumos = hoja_('ICAT').getDataRange().getValues().slice(1)
     .filter(r => String(r[0]).trim() && String(r[1]).trim() && activo(r[8]))
@@ -631,7 +634,7 @@ function escribirEpp_(cat, pedido, trab, motivo, obs, entregadoPor, ahora) {
     const i = cat.idx[c], r = cat.vc[i], q = pedido[c];
     const nuevo = (Number(r[4]) || 0) - q;
     cat.sh.getRange(i + 1, 5).setValue(nuevo);
-    detalle.push({ codigo: c, epp: String(r[1]), talla: String(r[2]), unidad: String(r[3] || 'UN'), cantidad: q, stock: nuevo, min: Number(r[5]) || 0 });
+    detalle.push({ codigo: c, epp: String(r[1]), talla: String(r[2]), unidad: String(r[3] || 'UN'), marca: txtMM_(r[7]), modelo: txtMM_(r[8]), cantidad: q, stock: nuevo, min: Number(r[5]) || 0 });
     // La columna PDF parte como PENDIENTE: si algo falla después, queda marcado y se regenera desde el menú.
     filasE.push([folio, ahora, ahora, trab.rut, trab.nombre, trab.cargo, trab.turno, c, r[1], r[2], q, motivo || '', entregadoPor, obs || '', CFG.PDF_PENDIENTE]);
     filasM.push([ahora, ahora, 'SALIDA', c, r[1], r[2], -q, nuevo, folio, entregadoPor, 'Entrega a ' + trab.nombre]);
@@ -679,6 +682,8 @@ function escribirIns_(cat, pedido, trab, area, obs, entregadoPor, ahora) {
   agregarFilas_(hoja_('IMOV'), filasM, [1], 2);
   return { folio: folio, alertas: alertas };
 }
+/** Marca/Modelo: "POR CONFIRMAR" o vacío se tratan como desconocido (no se imprimen en el PDF). */
+function txtMM_(v) { const s = String(v == null ? '' : v).trim(); return /^por confirmar$/i.test(s) ? '' : s; }
 function firmaOk_(f) { return !!f && String(f).indexOf('data:image/png;base64,') === 0; }
 
 function registrarEntrega(p) {
@@ -771,8 +776,11 @@ function regenerarPdfsPendientes() {
     const f = String(v[i][0]).trim();
     (grupos[f] = grupos[f] || []).push(i);
   }
-  const unidades = {};
-  hoja_('CAT').getDataRange().getValues().slice(1).forEach(r => { unidades[String(r[0]).trim().toUpperCase()] = String(r[3] || 'UN'); });
+  const unidades = {}, mm = {};
+  hoja_('CAT').getDataRange().getValues().slice(1).forEach(r => {
+    const c = String(r[0]).trim().toUpperCase();
+    unidades[c] = String(r[3] || 'UN'); mm[c] = { marca: txtMM_(r[7]), modelo: txtMM_(r[8]) };
+  });
 
   const ok = [], sinFirma = [], error = [];
   Object.keys(grupos).forEach(folio => {
@@ -783,7 +791,7 @@ function regenerarPdfsPendientes() {
       const firma = leerFirma_(folio);
       if (!firma) { sinFirma.push(folio); return; }
       const trab = { rut: fmtRut_(r0[3]), nombre: String(r0[4]), cargo: String(r0[5]), turno: String(r0[6]) };
-      const detalle = filas.map(r => ({ codigo: String(r[7]), epp: String(r[8]), talla: String(r[9]), unidad: unidades[String(r[7]).toUpperCase()] || 'UN', cantidad: Number(r[10]) || 0 }));
+      const detalle = filas.map(r => ({ codigo: String(r[7]), epp: String(r[8]), talla: String(r[9]), unidad: unidades[String(r[7]).toUpperCase()] || 'UN', marca: (mm[String(r[7]).toUpperCase()] || {}).marca || '', modelo: (mm[String(r[7]).toUpperCase()] || {}).modelo || '', cantidad: Number(r[10]) || 0 }));
       const url = pdfEntrega_({
         folio: folio, ahora: ahora, trab: trab, detalle: detalle, motivo: String(r0[11]), obs: String(r0[13]),
         entregadoPor: String(r0[12]), firma: firma, hash: hash_(folio, trab.rut, detalle, ahora, firma)
@@ -806,7 +814,7 @@ function pdfEntrega_(o) {
   const h = Utilities.formatDate(o.ahora, CFG.TZ, 'HH:mm');
   const filas = o.detalle.map((d, i) =>
     '<tr><td class="c">' + (i + 1) + '</td><td>' + esc_(d.codigo) + '</td><td>' + esc_(d.epp) +
-    '</td><td class="c">' + esc_(d.talla) + '</td><td class="c">' + esc_(d.unidad) +
+    '</td><td>' + esc_(d.marca || '—') + '</td><td>' + esc_(d.modelo || '—') + '</td><td class="c">' + esc_(d.talla) + '</td><td class="c">' + esc_(d.unidad) +
     '</td><td class="c">' + d.cantidad + '</td></tr>').join('');
 
   const html =
@@ -837,8 +845,8 @@ function pdfEntrega_(o) {
     '</table>' +
 
     '<div class="sec">2. DETALLE DE EPP ENTREGADOS</div>' +
-    '<table><tr><th class="c" style="width:6%">N°</th><th style="width:14%">Código</th><th>Descripción</th>' +
-    '<th class="c" style="width:10%">Talla</th><th class="c" style="width:9%">Unidad</th><th class="c" style="width:9%">Cant.</th></tr>' +
+    '<table><tr><th class="c" style="width:5%">N°</th><th style="width:11%">Código</th><th>Descripción</th><th style="width:13%">Marca</th><th style="width:14%">Modelo</th>' +
+    '<th class="c" style="width:9%">Talla</th><th class="c" style="width:8%">Unidad</th><th class="c" style="width:7%">Cant.</th></tr>' +
     filas + '</table>' +
     (o.obs ? '<table><tr><td class="lbl">Observaciones</td><td>' + esc_(o.obs) + '</td></tr></table>' : '') +
 
