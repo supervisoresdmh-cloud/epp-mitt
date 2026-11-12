@@ -21,7 +21,7 @@
 var EST = (function(){
   var mem = {}, padre = '', enIframe = false;
   try { enIframe = window.self !== window.top; } catch(e){ enIframe = true; }
-  var PORTAL = /^https:\/\/([a-z0-9-]+\.)*mitt\.cl$/i;
+  function origenPadre(){ try { var a = location.ancestorOrigins; if (a && a.length) return a[a.length - 1]; } catch(e){} try { return document.referrer ? new URL(document.referrer).origin : ''; } catch(e){ return ''; } }
   function get(k){ try { var v = localStorage.getItem(k); if (v !== null) return v; } catch(e){} return mem[k] == null ? '' : mem[k]; }
   function set(k, v){
     v = v == null ? '' : String(v); mem[k] = v;
@@ -34,7 +34,8 @@ var EST = (function(){
     var hecho = false, id = String(Date.now());
     function fin(){ if (hecho) return; hecho = true; window.removeEventListener('message', rec); listo(); }
     function rec(e){
-      if (!PORTAL.test(e.origin) || !e.data || e.data.mitt !== 'epp' || e.data.op !== 'data' || e.data.id !== id) return;
+      // Solo se acepta la respuesta de la página que contiene a la app (el portal), venga del dominio que venga.
+      if (e.source !== window.parent || !e.data || e.data.mitt !== 'epp' || e.data.op !== 'data' || e.data.id !== id) return;
       padre = e.origin;
       var d = e.data.data || {};
       Object.keys(d).forEach(function(k){
@@ -47,9 +48,10 @@ var EST = (function(){
     }
     window.addEventListener('message', rec);
     try { window.parent.postMessage({mitt: 'epp', op: 'get', id: id}, '*'); } catch(e){ return fin(); }
-    setTimeout(fin, 1500);
+    setTimeout(fin, 3000);
   }
-  return {get: get, set: set, sincronizar: sincronizar, enIframe: function(){ return enIframe; }, conPortal: function(){ return !!padre; }};
+  return {get: get, set: set, sincronizar: sincronizar, enIframe: function(){ return enIframe; }, conPortal: function(){ return !!padre; },
+    portal: function(){ return padre || origenPadre() || '?'; }};
 })();
 /* Tema: 'auto' sigue al celular; 'light' o 'dark' lo fija el usuario. Se aplica antes de pintar para evitar parpadeo. */
 function temaGuardado(){ return EST.get('epp_tema') || 'auto'; }
@@ -281,7 +283,7 @@ var API_URL = 'https://script.google.com/macros/s/AKfycbx21GkRzYnnBNyLddiAas4wyW
 <header>
   <div class="barra-in">
     <div class="marca"><span class="placa">MITT</span><span id="titulo">Entrega de EPP e insumos</span></div>
-    <small class="ver"><span class="faena">Finning DMH · </span><span id="ver">v5.9</span></small>
+    <small class="ver"><span class="faena">Finning DMH · </span><span id="ver">v5.11</span></small>
   </div>
   <div class="usr" id="usr"></div>
   <div class="modsw"><button id="swEpp" class="on" onclick="setMod('epp')">EPP</button><button id="swIns" onclick="setMod('ins')">Insumos</button></div>
@@ -536,6 +538,7 @@ function catEnt(){
   return (DB.catalogo || []).map(function(x){ return Object.assign({t: 'epp'}, x); })
     .concat((DB.insumos || []).map(function(x){ return Object.assign({t: 'ins'}, x); }));
 }
+function mmApp(e){ return [e.marca, e.modelo].filter(Boolean).join(' ') ; }
 function tag(t){ return '<span class="tg ' + t + '">' + (t === 'ins' ? 'INS' : 'EPP') + '</span>'; }
 function hay(t){ return items.some(function(i){ return i.t === t; }); }
 function titulo(){
@@ -622,8 +625,8 @@ function buscador(inp, res, fuente, fmt, onPick){
   });
 }
 var fmtEpp = {
-  key: function(x){ return x.epp + ' ' + x.talla + ' ' + x.codigo; },
-  html: function(x){ return '<b>' + h(eppTxt(x)) + '</b><br><small>' + h(x.codigo) + ' · stock ' + x.stock + '</small>'; }
+  key: function(x){ return x.epp + ' ' + x.talla + ' ' + x.codigo + ' ' + mmApp(x); },
+  html: function(x){ return '<b>' + h(eppTxt(x)) + '</b><br><small>' + (mmApp(x) ? h(mmApp(x)) + ' · ' : '') + h(x.codigo) + ' · stock ' + x.stock + '</small>'; }
 };
 buscador('#qEpp', '#resEpp', catEnt, {
   key: fmtEpp.key,
@@ -744,7 +747,7 @@ function renderItems(){
   $('#items').innerHTML = items.map(function(it, i){
     var e = buscarEnt(it.codigo) || {epp: it.codigo, talla: '', stock: 0, t: it.t};
     var w = it.cant > e.stock ? '<span class="warn"> · stock insuficiente (' + e.stock + ')</span>' : '';
-    return '<div class="item"><div class="info">' + tag(it.t) + '<b>' + h(eppTxt(e)) + '</b><small>' + h(it.codigo) + ' · stock ' + e.stock + w + '</small></div>' +
+    return '<div class="item"><div class="info">' + tag(it.t) + '<b>' + h(eppTxt(e)) + '</b><small>' + (mmApp(e) ? h(mmApp(e)) + ' · ' : '') + h(it.codigo) + ' · stock ' + e.stock + w + '</small></div>' +
       '<div class="qty"><button onclick="cambiar(' + i + ',-1)">−</button><span>' + it.cant + '</span><button onclick="cambiar(' + i + ',1)">+</button></div></div>';
   }).join('');
   renderScanList();
@@ -1077,7 +1080,7 @@ function diagLogin(motivo){
   if (motivo) txt = 'El servidor rechazó la sesión guardada (' + motivo.replace('SESION:', '') + ').';
   else if (marca) txt = 'No hay sesión guardada, pero el celular sí conserva otros datos (último ingreso ' + marca + ').';
   else txt = 'El celular no conserva datos entre aperturas.';
-  var donde = EST.enIframe() ? (EST.conPortal() ? 'dentro del portal (respaldo activo)' : 'dentro de otra página SIN respaldo') : (app ? 'app instalada' : 'navegador (no instalada)');
+  var donde = EST.enIframe() ? (EST.conPortal() ? 'dentro de ' + EST.portal() + ' (respaldo activo)' : 'dentro de ' + EST.portal() + ' SIN respaldo: el portal no respondió') : (app ? 'app instalada' : 'navegador (no instalada)');
   $('#diag').textContent = 'Diagnóstico · ' + donde + ' · memoria ' + mem + ' · ' + txt;
 }
 function mostrarLogin(){
