@@ -34,6 +34,7 @@ var API_URL = 'https://script.google.com/macros/s/AKfycbx21GkRzYnnBNyLddiAas4wyW
 (function(){
   function token(){ try { return localStorage.getItem('epp_token') || ''; } catch(e){ return ''; } }
   try { localStorage.removeItem('epp_pin'); } catch(e){}   // PIN general antiguo: ya no se usa
+  try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch(e){}   // que el celular no borre la sesión guardada
   function llamar(fn, args, ok, fail){
     if (API_URL.indexOf('PEGA_AQUI') === 0) { fail && fail({message: 'Falta configurar API_URL en index.html'}); return; }
     fetch(API_URL, {method: 'POST', headers: {'Content-Type': 'text/plain;charset=utf-8'}, body: JSON.stringify({fn: fn, args: args, token: token()})})
@@ -242,7 +243,7 @@ var API_URL = 'https://script.google.com/macros/s/AKfycbx21GkRzYnnBNyLddiAas4wyW
 <header>
   <div class="barra-in">
     <div class="marca"><span class="placa">MITT</span><span id="titulo">Entrega de EPP e insumos</span></div>
-    <small class="ver"><span class="faena">Finning DMH · </span><span id="ver">v5.6</span></small>
+    <small class="ver"><span class="faena">Finning DMH · </span><span id="ver">v5.7</span></small>
   </div>
   <div class="usr" id="usr"></div>
   <div class="modsw"><button id="swEpp" class="on" onclick="setMod('epp')">EPP</button><button id="swIns" onclick="setMod('ins')">Insumos</button></div>
