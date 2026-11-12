@@ -8,6 +8,7 @@
  * Hojas INSUMOS:  INS_CATALOGO · INS_ENTREGAS · INS_MOVIMIENTOS · INS_RESUMEN · INS_HISTORICO
  * Compartidas:    PERSONAL · AREAS
  *
+ * v5.6: entrega combinada (registrarTurno): EPP + insumos al mismo trabajador en una sola llamada.
  * v5.5: doGet permite mostrarse dentro de un iframe (apps.mitt.cl).
  * v5.4: etiquetas: el PDF se descarga/comparte desde la app (sin pedir acceso a Drive).
  * v5.1: botón Ver PDF / Compartir: el PDF se descarga al celular desde la app (sin pedir acceso a Drive).
@@ -68,7 +69,7 @@ function api_() {
     getDatos: getDatos, registrarEntrega: registrarEntrega, registrarInsumos: registrarInsumos,
     consumoInsumos: consumoInsumos, ingresarStock: ingresarStock, ajustarStock: ajustarStock, etiquetasPdf: etiquetasPdf,
     crearTrabajador: crearTrabajador, asignarRut: asignarRut, cambiarPin: cambiarPin, cerrarSesion: cerrarSesion,
-    obtenerPdf: obtenerPdf
+    obtenerPdf: obtenerPdf, registrarTurno: registrarTurno
   };
 }
 
@@ -587,75 +588,144 @@ function asignarRut(p) {
 
 /* ---------------- Registro de entrega de EPP ---------------- */
 
-function registrarEntrega(p) {
-  if (!p || !p.rut) throw new Error('El trabajador no tiene RUT en PERSONAL. Complétalo antes de registrar.');
-  if (!p.items || !p.items.length) throw new Error('No hay EPP en la entrega.');
-  if (!p.firma || p.firma.indexOf('data:image/png;base64,') !== 0) throw new Error('Falta la firma del trabajador.');
-  const entregadoPor = quien_(p.entregadoPor);
-  if (!entregadoPor) throw new Error('Indica quién entrega.');
+/* Piezas comunes: se usan en la entrega de EPP sola, de insumos sola y en la combinada. */
 
+/** Junta cantidades por código: [{codigo, cantidad}] -> {COD: n} */
+function pedido_(items) {
   const pedido = {};
-  p.items.forEach(i => {
+  (items || []).forEach(i => {
     const c = String(i.codigo).trim().toUpperCase();
     const q = Math.floor(Number(i.cantidad));
     if (!(q > 0)) throw new Error('Cantidad inválida en ' + c);
     pedido[c] = (pedido[c] || 0) + q;
   });
+  return pedido;
+}
+/** Lee un catálogo y valida que existan todos los códigos del pedido. No escribe nada. */
+function prepCat_(k, pedido) {
+  const sh = hoja_(k);
+  const vc = sh.getDataRange().getValues();
+  const idx = {};
+  for (let i = 1; i < vc.length; i++) {
+    const c = String(vc[i][0]).trim().toUpperCase();
+    if (c) idx[c] = i;
+  }
+  Object.keys(pedido).forEach(c => {
+    if (idx[c] === undefined) throw new Error('Código no existe en ' + H[k].n + ': ' + c);
+  });
+  return { sh: sh, vc: vc, idx: idx };
+}
+/** Descuenta stock de EPP y escribe ENTREGAS + MOVIMIENTOS (PDF queda PENDIENTE). Llamar con el lock tomado. */
+function escribirEpp_(cat, pedido, trab, motivo, obs, entregadoPor, ahora) {
+  const folio = siguienteFolio_('FOLIO', CFG.PREFIJO_FOLIO);
+  const filasE = [], filasM = [], detalle = [];
+  Object.keys(pedido).forEach(c => {
+    const i = cat.idx[c], r = cat.vc[i], q = pedido[c];
+    const nuevo = (Number(r[4]) || 0) - q;
+    cat.sh.getRange(i + 1, 5).setValue(nuevo);
+    detalle.push({ codigo: c, epp: String(r[1]), talla: String(r[2]), unidad: String(r[3] || 'UN'), cantidad: q, stock: nuevo, min: Number(r[5]) || 0 });
+    // La columna PDF parte como PENDIENTE: si algo falla después, queda marcado y se regenera desde el menú.
+    filasE.push([folio, ahora, ahora, trab.rut, trab.nombre, trab.cargo, trab.turno, c, r[1], r[2], q, motivo || '', entregadoPor, obs || '', CFG.PDF_PENDIENTE]);
+    filasM.push([ahora, ahora, 'SALIDA', c, r[1], r[2], -q, nuevo, folio, entregadoPor, 'Entrega a ' + trab.nombre]);
+  });
+  const filaIni = agregarFilas_(hoja_('ENT'), filasE, [2], 3);
+  agregarFilas_(hoja_('MOV'), filasM, [1], 2);
+  return { folio: folio, detalle: detalle, filaIni: filaIni, nFilas: filasE.length };
+}
+/** Firma + PDF de una entrega de EPP ya registrada. Si falla, la entrega queda con PDF PENDIENTE (nunca se registra dos veces). */
+function pdfEpp_(w, trab, motivo, obs, entregadoPor, firma, ahora) {
+  const alertas = w.detalle.filter(d => d.stock <= d.min)
+    .map(d => d.epp + (d.talla ? ' T' + d.talla : '') + ': quedan ' + d.stock);
+  try {
+    guardarFirma_(w.folio, ahora, firma);
+    const url = pdfEntrega_({
+      folio: w.folio, ahora: ahora, trab: trab, detalle: w.detalle, motivo: motivo || '',
+      obs: obs || '', entregadoPor: entregadoPor, firma: firma, hash: hash_(w.folio, trab.rut, w.detalle, ahora, firma)
+    }).getUrl();
+    hoja_('ENT').getRange(w.filaIni, 15, w.nFilas, 1).setValues(Array(w.nFilas).fill([url]));
+    return { folio: w.folio, url: url, pdfPendiente: false, alertas: alertas };
+  } catch (err) {
+    console.error('PDF ' + w.folio + ': ' + (err && err.message));
+    return { folio: w.folio, url: '', pdfPendiente: true, alertas: alertas };
+  }
+}
+/** Descuenta stock de insumos y escribe INS_ENTREGAS + INS_MOVIMIENTOS. Llamar con el lock tomado. */
+function escribirIns_(cat, pedido, trab, area, obs, entregadoPor, ahora) {
+  const mes = Utilities.formatDate(ahora, CFG.TZ, 'yyyy-MM');
+  const folio = siguienteFolio_('FOLIO_INS', CFG.PREFIJO_FOLIO_INS);
+  const filasE = [], filasM = [], alertas = [];
+  Object.keys(pedido).forEach(c => {
+    const i = cat.idx[c], r = cat.vc[i], q = pedido[c];
+    const nuevo = (Number(r[6]) || 0) - q;
+    cat.sh.getRange(i + 1, 7).setValue(nuevo);
+    const contenido = Number(r[4]) || 0;
+    const medida = String(r[5] || '').trim() || String(r[3] || 'UN');
+    const total = r2_(q * (contenido || 1));
+    filasE.push([folio, ahora, ahora, mes, area, trab.rut, trab.nombre, c, r[1], r[2], r[3], q, total, medida, entregadoPor, obs || '']);
+    filasM.push([ahora, ahora, 'SALIDA', c, r[1], r[2], -q, nuevo, folio, entregadoPor, area + ' · ' + trab.nombre]);
+    if (nuevo <= (Number(r[7]) || 0)) alertas.push(r[1] + ' ' + r[2] + ': quedan ' + nuevo);
+  });
+  const shE = hoja_('IENT');
+  shE.getRange(shE.getLastRow() + 1, 4, filasE.length, 1).setNumberFormat('@');
+  agregarFilas_(shE, filasE, [2], 3);
+  agregarFilas_(hoja_('IMOV'), filasM, [1], 2);
+  return { folio: folio, alertas: alertas };
+}
+function firmaOk_(f) { return !!f && String(f).indexOf('data:image/png;base64,') === 0; }
+
+function registrarEntrega(p) {
+  if (!p || !p.rut) throw new Error('El trabajador no tiene RUT en PERSONAL. Complétalo antes de registrar.');
+  if (!p.items || !p.items.length) throw new Error('No hay EPP en la entrega.');
+  if (!firmaOk_(p.firma)) throw new Error('Falta la firma del trabajador.');
+  const entregadoPor = quien_(p.entregadoPor);
+  if (!entregadoPor) throw new Error('Indica quién entrega.');
+  const pedido = pedido_(p.items);
 
   const ahora = new Date();
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
-  let folio, trab, filaIni, nFilas;
-  const detalle = [];
+  let trab, w;
   try {
     trab = trabajador_(p.rut);
-    const shC = hoja_('CAT');
-    const vc = shC.getDataRange().getValues();
-    const idx = {};
-    for (let i = 1; i < vc.length; i++) {
-      const c = String(vc[i][0]).trim().toUpperCase();
-      if (c) idx[c] = i;
-    }
-    Object.keys(pedido).forEach(c => {
-      if (idx[c] === undefined) throw new Error('Código no existe en CATALOGO de EPP: ' + c);
-    });
-
-    folio = siguienteFolio_('FOLIO', CFG.PREFIJO_FOLIO);
-    const filasE = [], filasM = [];
-    Object.keys(pedido).forEach(c => {
-      const i = idx[c], r = vc[i], q = pedido[c];
-      const nuevo = (Number(r[4]) || 0) - q;
-      shC.getRange(i + 1, 5).setValue(nuevo);
-      detalle.push({ codigo: c, epp: String(r[1]), talla: String(r[2]), unidad: String(r[3] || 'UN'), cantidad: q, stock: nuevo, min: Number(r[5]) || 0 });
-      // La columna PDF parte como PENDIENTE: si algo falla después, queda marcado y se regenera desde el menú.
-      filasE.push([folio, ahora, ahora, trab.rut, trab.nombre, trab.cargo, trab.turno, c, r[1], r[2], q, p.motivo || '', entregadoPor, p.obs || '', CFG.PDF_PENDIENTE]);
-      filasM.push([ahora, ahora, 'SALIDA', c, r[1], r[2], -q, nuevo, folio, entregadoPor, 'Entrega a ' + trab.nombre]);
-    });
-    nFilas = filasE.length;
-    filaIni = agregarFilas_(hoja_('ENT'), filasE, [2], 3);
-    agregarFilas_(hoja_('MOV'), filasM, [1], 2);
+    w = escribirEpp_(prepCat_('CAT', pedido), pedido, trab, p.motivo, p.obs, entregadoPor, ahora);
     SpreadsheetApp.flush();
   } finally {
     lock.releaseLock();
   }
+  return pdfEpp_(w, trab, p.motivo, p.obs, entregadoPor, p.firma, ahora);
+}
 
-  const alertas = detalle.filter(d => d.stock <= d.min)
-    .map(d => d.epp + (d.talla ? ' T' + d.talla : '') + ': quedan ' + d.stock);
+/* ---------------- Entrega combinada (inicio de turno): EPP + insumos al mismo trabajador ----------------
+ * Una sola llamada y un solo bloqueo: se validan ambos catálogos ANTES de escribir, así nunca queda
+ * una mitad registrada. El EPP lleva firma y PDF; los insumos solo descuentan stock (sin firma).
+ */
+function registrarTurno(p) {
+  if (!p || !p.rut) throw new Error('El trabajador no tiene RUT en PERSONAL. Complétalo antes de registrar.');
+  const itE = p.itemsEpp || [], itI = p.itemsIns || [];
+  if (!itE.length && !itI.length) throw new Error('No hay ítems en la entrega.');
+  if (itE.length && !firmaOk_(p.firma)) throw new Error('Falta la firma del trabajador (obligatoria cuando hay EPP).');
+  const area = String(p.area || '').trim();
+  if (itI.length && !area) throw new Error('Selecciona el área (obligatoria cuando hay insumos).');
+  const entregadoPor = quien_(p.entregadoPor);
+  if (!entregadoPor) throw new Error('Indica quién entrega.');
+  const pe = itE.length ? pedido_(itE) : null;
+  const pi = itI.length ? pedido_(itI) : null;
 
-  // Desde aquí la entrega YA está registrada. Si el PDF falla, se informa como pendiente (nunca se registra dos veces).
-  let url = '';
+  const ahora = new Date();
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  let trab, w = null, ins = null;
   try {
-    guardarFirma_(folio, ahora, p.firma);
-    url = pdfEntrega_({
-      folio: folio, ahora: ahora, trab: trab, detalle: detalle, motivo: p.motivo || '',
-      obs: p.obs || '', entregadoPor: entregadoPor, firma: p.firma, hash: hash_(folio, trab.rut, detalle, ahora, p.firma)
-    }).getUrl();
-    hoja_('ENT').getRange(filaIni, 15, nFilas, 1).setValues(Array(nFilas).fill([url]));
-  } catch (err) {
-    console.error('PDF ' + folio + ': ' + (err && err.message));
-    return { folio: folio, url: '', pdfPendiente: true, alertas: alertas };
+    trab = trabajador_(p.rut);
+    const ce = pe ? prepCat_('CAT', pe) : null;     // validar todo primero…
+    const ci = pi ? prepCat_('ICAT', pi) : null;
+    if (ce) w = escribirEpp_(ce, pe, trab, p.motivo, p.obs, entregadoPor, ahora);   // …y recién ahí escribir
+    if (ci) ins = escribirIns_(ci, pi, trab, area, p.obs, entregadoPor, ahora);
+    SpreadsheetApp.flush();
+  } finally {
+    lock.releaseLock();
   }
-  return { folio: folio, url: url, pdfPendiente: false, alertas: alertas };
+  return { epp: w ? pdfEpp_(w, trab, p.motivo, p.obs, entregadoPor, p.firma, ahora) : null, ins: ins };
 }
 
 function hash_(folio, rut, detalle, ahora, firma) {
@@ -799,53 +869,16 @@ function registrarInsumos(p) {
   if (!p.items || !p.items.length) throw new Error('No hay insumos en la entrega.');
   const entregadoPor = quien_(p.entregadoPor);
   if (!entregadoPor) throw new Error('Indica quién entrega.');
-
-  const pedido = {};
-  p.items.forEach(i => {
-    const c = String(i.codigo).trim().toUpperCase();
-    const q = Math.floor(Number(i.cantidad));
-    if (!(q > 0)) throw new Error('Cantidad inválida en ' + c);
-    pedido[c] = (pedido[c] || 0) + q;
-  });
+  const pedido = pedido_(p.items);
 
   const ahora = new Date();
-  const mes = Utilities.formatDate(ahora, CFG.TZ, 'yyyy-MM');
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
     const trab = trabajador_(p.rut);
-    const shC = hoja_('ICAT');
-    const vc = shC.getDataRange().getValues();
-    const idx = {};
-    for (let i = 1; i < vc.length; i++) {
-      const c = String(vc[i][0]).trim().toUpperCase();
-      if (c) idx[c] = i;
-    }
-    Object.keys(pedido).forEach(c => {
-      if (idx[c] === undefined) throw new Error('Código no existe en INS_CATALOGO: ' + c);
-    });
-
-    const folio = siguienteFolio_('FOLIO_INS', CFG.PREFIJO_FOLIO_INS);
-    const filasE = [], filasM = [], alertas = [];
-    Object.keys(pedido).forEach(c => {
-      const i = idx[c], r = vc[i], q = pedido[c];
-      const nuevo = (Number(r[6]) || 0) - q;
-      shC.getRange(i + 1, 7).setValue(nuevo);
-      const contenido = Number(r[4]) || 0;
-      const medida = String(r[5] || '').trim() || String(r[3] || 'UN');
-      const total = r2_(q * (contenido || 1));
-      filasE.push([folio, ahora, ahora, mes, area, trab.rut, trab.nombre, c, r[1], r[2], r[3], q, total, medida, entregadoPor, p.obs || '']);
-      filasM.push([ahora, ahora, 'SALIDA', c, r[1], r[2], -q, nuevo, folio, entregadoPor, area + ' · ' + trab.nombre]);
-      if (nuevo <= (Number(r[7]) || 0)) alertas.push(r[1] + ' ' + r[2] + ': quedan ' + nuevo);
-    });
-
-    const shE = hoja_('IENT');
-    const f = shE.getLastRow() + 1;
-    shE.getRange(f, 4, filasE.length, 1).setNumberFormat('@');
-    agregarFilas_(shE, filasE, [2], 3);
-    agregarFilas_(hoja_('IMOV'), filasM, [1], 2);
+    const r = escribirIns_(prepCat_('ICAT', pedido), pedido, trab, area, p.obs, entregadoPor, ahora);
     SpreadsheetApp.flush();
-    return { folio: folio, alertas: alertas };
+    return r;
   } finally {
     lock.releaseLock();
   }
