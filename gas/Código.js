@@ -8,6 +8,7 @@
  * Hojas INSUMOS:  INS_CATALOGO · INS_ENTREGAS · INS_MOVIMIENTOS · INS_RESUMEN · INS_HISTORICO
  * Compartidas:    PERSONAL · AREAS
  *
+ * v5.7: la sesión ya no expira a los 7 días: se renueva con cada uso (60 días sin usar). Reset de PIN cierra sesiones.
  * v5.6: entrega combinada (registrarTurno): EPP + insumos al mismo trabajador en una sola llamada.
  * v5.5: doGet permite mostrarse dentro de un iframe (apps.mitt.cl).
  * v5.4: etiquetas: el PDF se descarga/comparte desde la app (sin pedir acceso a Drive).
@@ -32,7 +33,7 @@ const CFG = {
   // URL de la app instalable (GitHub Pages). Quien entre a la URL antigua de Apps Script es enviado aquí.
   APP_URL: 'https://supervisoresdmh-cloud.github.io/epp-mitt/',
   // Acceso por usuario (hoja USUARIOS): RUT + PIN personal. Ningún PIN queda escrito en el código.
-  SESION_DIAS: 7,          // días que dura la sesión en el celular
+  SESION_DIAS: 60,         // días SIN USAR la app antes de pedir login de nuevo (se renueva sola con cada uso)
   MAX_FALLOS: 5,           // intentos fallidos antes de bloquear el RUT
   BLOQUEO_MIN: 15,         // minutos de bloqueo
   MARCA_PIN: '✔ PIN personal'   // lo que muestra la columna PIN cuando el usuario ya creó el suyo
@@ -169,6 +170,11 @@ function sesion_(token) {
   if (s.exp < Date.now()) { props.deleteProperty('SES_' + token); throw new Error('SESION'); }
   const u = usuario_(s.rut);
   if (!u || !u.activo) { props.deleteProperty('SES_' + token); throw new Error('SESION'); }
+  // PIN reseteado en la hoja (vuelve a ser provisorio): se cierran sus sesiones abiertas (ej. celular perdido).
+  if (u.pin !== CFG.MARCA_PIN && !s.cambio) { props.deleteProperty('SES_' + token); throw new Error('SESION'); }
+  // Sesión deslizante, como una app normal: cada uso la extiende (como máximo una escritura al día).
+  const nueva = Date.now() + CFG.SESION_DIAS * 864e5;
+  if (nueva - s.exp > 864e5) { s.exp = nueva; props.setProperty('SES_' + token, JSON.stringify(s)); }
   return { token: token, rut: u.rut, nombre: u.nombre, rol: u.rol, cambio: !!s.cambio };
 }
 function limpiarSesiones_() {
