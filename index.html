@@ -95,7 +95,7 @@ var API_URL = 'https://script.google.com/macros/s/AKfycbx21GkRzYnnBNyLddiAas4wyW
   :root{ --az:var(--tinta); --az2:var(--barra); --bg:var(--fondo); --card:var(--sup); --tx:var(--tinta); --mut:var(--tinta2);
          --ok:var(--exito); --err:var(--alerta); --warn:var(--alerta); --bd:var(--linea); }
   /* Módulo Insumos: barra verde petróleo para distinguirlo de un vistazo */
-  body.ins{--barra:#0F3B37; --borde-barra:#2C5A55; --barra2:#9FC2BC}
+  body.ins:not(.ent){--barra:#0F3B37; --borde-barra:#2C5A55; --barra2:#9FC2BC}
 
   *,*::before,*::after{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
   body{margin:0;background:var(--fondo);color:var(--tinta);font-family:'Barlow',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;font-size:16px;line-height:1.4;-webkit-font-smoothing:antialiased;
@@ -209,6 +209,12 @@ var API_URL = 'https://script.google.com/macros/s/AKfycbx21GkRzYnnBNyLddiAas4wyW
   .solo-epp,.solo-ins{}
   body.ins .solo-epp{display:none!important}
   body:not(.ins) .solo-ins{display:none!important}
+  body.ent .modsw{display:none}
+  body:not(.hay-epp) .si-epp{display:none!important}
+  .tg{display:inline-block;font-size:12px;font-weight:700;padding:1px 7px;border-radius:3px;margin-right:6px;vertical-align:1px;letter-spacing:.03em}
+  .tg.epp{background:var(--tinta);color:var(--fondo)}
+  .tg.ins{background:#0F3B37;color:#EEF1EF}
+  .opc{font-weight:400;color:var(--tinta2);font-size:13px}
 
   /* Consumo */
   .kpi{display:grid;grid-template-columns:repeat(3,1fr);border:1px solid var(--linea);margin-bottom:10px}
@@ -232,11 +238,11 @@ var API_URL = 'https://script.google.com/macros/s/AKfycbx21GkRzYnnBNyLddiAas4wyW
   .authbox p.nota{font-size:14px;margin-top:18px}
 </style>
 </head>
-<body>
+<body class="ent">
 <header>
   <div class="barra-in">
-    <div class="marca"><span class="placa">MITT</span><span id="titulo">Entrega de EPP</span></div>
-    <small class="ver"><span class="faena">Finning DMH · </span><span id="ver">v5.4</span></small>
+    <div class="marca"><span class="placa">MITT</span><span id="titulo">Entrega de EPP e insumos</span></div>
+    <small class="ver"><span class="faena">Finning DMH · </span><span id="ver">v5.6</span></small>
   </div>
   <div class="usr" id="usr"></div>
   <div class="modsw"><button id="swEpp" class="on" onclick="setMod('epp')">EPP</button><button id="swIns" onclick="setMod('ins')">Insumos</button></div>
@@ -253,10 +259,7 @@ var API_URL = 'https://script.google.com/macros/s/AKfycbx21GkRzYnnBNyLddiAas4wyW
   <section id="tEntrega" class="tab on">
     <div id="formEntrega">
       <div class="card">
-        <h2><span class="solo-epp">1 · Trabajador</span><span class="solo-ins">1 · Área y trabajador</span></h2>
-        <div class="solo-ins" style="margin-bottom:10px">
-          <select id="area"><option value="">— Selecciona el área —</option></select>
-        </div>
+        <h2>1 · Trabajador y área</h2>
         <div id="trabSel"></div>
         <div id="trabBus">
           <div class="row">
@@ -281,20 +284,23 @@ var API_URL = 'https://script.google.com/macros/s/AKfycbx21GkRzYnnBNyLddiAas4wyW
             <button class="btn ok" onclick="guardarNuevo()">Registrar trabajador</button>
           </div>
         </div>
+        <label>Área <span class="opc">(obligatoria si hay insumos)</span></label>
+        <select id="area"><option value="">— Selecciona el área —</option></select>
       </div>
 
       <div class="card">
-        <h2><span class="solo-epp">2 · EPP entregados</span><span class="solo-ins">2 · Insumos entregados</span></h2>
+        <h2>2 · EPP e insumos entregados</h2>
         <button class="btn full" onclick="abrirScanner('entrega')">📷 Escanear código</button>
         <label>o buscar manualmente</label>
         <input id="qEpp" placeholder="Nombre o código" autocomplete="off">
         <div id="resEpp" class="res" style="display:none"></div>
         <div id="items" style="margin-top:8px"></div>
+        <small id="itemsRes" style="color:var(--mut);display:block;margin-top:6px"></small>
       </div>
 
       <div class="card">
         <h2>3 · Datos de la entrega</h2>
-        <div class="solo-epp"><label>Motivo</label>
+        <div class="si-epp"><label>Motivo de entrega de EPP</label>
         <select id="motivo">
           <option>Primera entrega / ingreso</option>
           <option>Reposición por desgaste</option>
@@ -309,22 +315,23 @@ var API_URL = 'https://script.google.com/macros/s/AKfycbx21GkRzYnnBNyLddiAas4wyW
         <input id="entregador" readonly title="Usuario que inició sesión">
       </div>
 
-      <div class="card solo-epp">
+      <div class="card si-epp">
         <h2>4 · Firma del trabajador</h2>
+        <small style="color:var(--mut);display:block;margin:-6px 0 8px">Solo respalda el EPP (va al PDF). Los insumos no llevan firma.</small>
         <canvas id="firma"></canvas>
         <div class="row" style="margin-top:8px">
           <small style="color:var(--mut)">El trabajador firma con el dedo</small>
           <button class="btn sec" style="flex:none" onclick="limpiarFirma()">Borrar firma</button>
         </div>
       </div>
-      <div class="fix"><button class="btn ok full" id="btnReg" onclick="registrar()">✔ Registrar entrega y generar PDF</button></div>
+      <div class="fix"><button class="btn ok full" id="btnReg" onclick="registrar()">✔ Registrar entrega</button></div>
     </div>
 
     <div id="resultado" class="card exito" style="display:none">
       <div class="big">✔</div>
       <h2 id="rFolio" style="font-size:20px"></h2>
       <p id="rTxt" style="color:var(--mut)"></p>
-      <div id="rPdfBox" class="solo-epp">
+      <div id="rPdfBox">
         <div class="row">
           <button class="btn" id="rVer" onclick="verPdf()" disabled>📄 Ver PDF</button>
           <button class="btn sec" id="rCompartir" style="display:none" onclick="compartirPdf()">📤 Compartir</button>
@@ -477,6 +484,24 @@ function buscarCod(c){ c = String(c || '').trim().toUpperCase(); return CAT().fi
 function codOtroModulo(c){ c = String(c || '').trim().toUpperCase(); return otroCat().some(function(x){ return x.codigo === c; }); }
 function noReg(c){ toast(codOtroModulo(c) ? 'Ese código es de ' + (MOD === 'ins' ? 'EPP' : 'Insumos') + '. Cambia de módulo arriba.' : 'Código no registrado: ' + c, 'err'); }
 var NOMBRE = {epp: 'EPP', ins: 'insumos'};
+/* Entrega combinada: la pestaña Entrega busca en ambos catálogos; cada ítem sabe si es EPP o INS por el catálogo donde está. */
+function buscarEnt(c){
+  c = String(c || '').trim().toUpperCase();
+  var e = (DB.catalogo || []).find(function(x){ return x.codigo === c; });
+  if (e) return Object.assign({t: 'epp'}, e);
+  e = (DB.insumos || []).find(function(x){ return x.codigo === c; });
+  return e ? Object.assign({t: 'ins'}, e) : null;
+}
+function catEnt(){
+  return (DB.catalogo || []).map(function(x){ return Object.assign({t: 'epp'}, x); })
+    .concat((DB.insumos || []).map(function(x){ return Object.assign({t: 'ins'}, x); }));
+}
+function tag(t){ return '<span class="tg ' + t + '">' + (t === 'ins' ? 'INS' : 'EPP') + '</span>'; }
+function hay(t){ return items.some(function(i){ return i.t === t; }); }
+function titulo(){
+  var enEnt = document.body.classList.contains('ent');
+  $('#titulo').textContent = enEnt ? 'Entrega de EPP e insumos' : (MOD === 'ins' ? 'Insumos' : 'EPP');
+}
 
 /* ---------- RUT ---------- */
 function normR(s){ return String(s || '').replace(/[^0-9kK]/g, '').toUpperCase(); }
@@ -506,19 +531,15 @@ function porRut(r){ var n = normR(r); return (DB.personal || []).find(function(x
 /* ---------- Módulo EPP / Insumos ---------- */
 function setMod(m){
   if (m === MOD) return;
-  if (items.length && $('#resultado').style.display === 'none' && !confirm('Tienes ítems sin registrar. Al cambiar de módulo se descartan. ¿Continuar?')) return;
   MOD = m; ls('epp_mod', m);
   document.body.classList.toggle('ins', m === 'ins');
   $('#swEpp').classList.toggle('on', m === 'epp'); $('#swIns').classList.toggle('on', m === 'ins');
-  $('#titulo').textContent = m === 'ins' ? 'Entrega de Insumos' : 'Entrega de EPP';
-  $('#btnReg').textContent = m === 'ins' ? '✔ Registrar entrega de insumos' : '✔ Registrar entrega y generar PDF';
-  items = []; stockItem = null;
-  if ($('#resultado').style.display !== 'none') nuevaEntrega();
+  titulo();
+  stockItem = null;
   var activo = document.querySelector('nav button.on');
-  if (m === 'epp' && activo && activo.dataset.t === 'tCons') document.querySelector('nav button[data-t="tEntrega"]').click();
-  renderItems(); renderStock(); renderStockSel(); renderEtiq();
+  if (m === 'epp' && activo && activo.dataset.t === 'tCons') document.querySelector('nav button[data-t="tStock"]').click();
+  renderStock(); renderStockSel(); renderEtiq();
   if (m === 'ins') cargarConsumo();
-  setTimeout(ajustarFirma, 50);
 }
 function renderAreas(){
   var sel = $('#area'), v = sel.value;
@@ -532,6 +553,7 @@ document.querySelectorAll('nav button').forEach(function(b){
     document.querySelectorAll('nav button').forEach(function(x){ x.classList.remove('on'); });
     document.querySelectorAll('.tab').forEach(function(x){ x.classList.remove('on'); });
     b.classList.add('on'); $('#' + b.dataset.t).classList.add('on');
+    document.body.classList.toggle('ent', b.dataset.t === 'tEntrega'); titulo();
     $('.fix').style.display = (b.dataset.t === 'tEntrega' && $('#formEntrega').style.display !== 'none') ? 'block' : 'none';
     if (b.dataset.t === 'tEntrega') ajustarFirma();
   };
@@ -563,7 +585,10 @@ var fmtEpp = {
   key: function(x){ return x.epp + ' ' + x.talla + ' ' + x.codigo; },
   html: function(x){ return '<b>' + h(eppTxt(x)) + '</b><br><small>' + h(x.codigo) + ' · stock ' + x.stock + '</small>'; }
 };
-buscador('#qEpp', '#resEpp', CAT, fmtEpp, function(e){ agregar(e.codigo); });
+buscador('#qEpp', '#resEpp', catEnt, {
+  key: fmtEpp.key,
+  html: function(x){ return tag(x.t) + fmtEpp.html(x); }
+}, function(e){ agregar(e.codigo); });
 buscador('#qStock', '#resStock', CAT, fmtEpp, function(e){ stockItem = e; renderStockSel(); });
 
 /* ---------- Trabajador: buscar, escanear cédula, registrar nuevo ---------- */
@@ -659,28 +684,34 @@ function renderTrab(){
 
 /* ---------- Ítems de la entrega ---------- */
 function agregar(codigo){
-  var e = buscarCod(codigo);
-  if (!e) { noReg(codigo); return false; }
+  var e = buscarEnt(codigo);
+  if (!e) { toast('Código no registrado: ' + codigo, 'err'); return false; }
   var it = items.find(function(x){ return x.codigo === e.codigo; });
-  if (it) it.cant++; else items.push({codigo: e.codigo, cant: 1});
+  if (it) it.cant++; else items.push({codigo: e.codigo, cant: 1, t: e.t});
   vibrar(); renderItems();
   toast('+1 ' + eppTxt(e), 'ok');
   return true;
 }
 function cambiar(i, d){ items[i].cant += d; if (items[i].cant < 1) items.splice(i, 1); renderItems(); }
 function renderItems(){
-  if (!items.length) { $('#items').innerHTML = '<div class="vacio">Aún no hay ' + NOMBRE[MOD] + ' agregados</div>'; renderScanList(); return; }
+  var conEpp = hay('epp'), antes = document.body.classList.contains('hay-epp');
+  document.body.classList.toggle('hay-epp', conEpp);
+  if (conEpp && !antes) setTimeout(ajustarFirma, 50);   // la firma aparece recién cuando hay EPP
+  var nE = 0, nI = 0;
+  items.forEach(function(i){ if (i.t === 'ins') nI += i.cant; else nE += i.cant; });
+  $('#itemsRes').textContent = items.length ? nE + ' EPP (van al PDF con firma) · ' + nI + ' insumos (solo descuentan stock)' : '';
+  if (!items.length) { $('#items').innerHTML = '<div class="vacio">Aún no hay ítems agregados</div>'; renderScanList(); return; }
   $('#items').innerHTML = items.map(function(it, i){
-    var e = buscarCod(it.codigo) || {epp: it.codigo, talla: '', stock: 0};
+    var e = buscarEnt(it.codigo) || {epp: it.codigo, talla: '', stock: 0, t: it.t};
     var w = it.cant > e.stock ? '<span class="warn"> · stock insuficiente (' + e.stock + ')</span>' : '';
-    return '<div class="item"><div class="info"><b>' + h(eppTxt(e)) + '</b><small>' + h(it.codigo) + ' · stock ' + e.stock + w + '</small></div>' +
+    return '<div class="item"><div class="info">' + tag(it.t) + '<b>' + h(eppTxt(e)) + '</b><small>' + h(it.codigo) + ' · stock ' + e.stock + w + '</small></div>' +
       '<div class="qty"><button onclick="cambiar(' + i + ',-1)">−</button><span>' + it.cant + '</span><button onclick="cambiar(' + i + ',1)">+</button></div></div>';
   }).join('');
   renderScanList();
 }
 function renderScanList(){
   $('#scanList').innerHTML = scanMode === 'entrega' && items.length
-    ? items.map(function(it){ var e = buscarCod(it.codigo) || {epp: it.codigo, talla: ''}; return '✔ ' + h(eppTxt(e)) + ' × ' + it.cant; }).join('<br>')
+    ? items.map(function(it){ var e = buscarEnt(it.codigo) || {epp: it.codigo, talla: ''}; return '✔ ' + (it.t === 'ins' ? 'INS' : 'EPP') + ' · ' + h(eppTxt(e)) + ' × ' + it.cant; }).join('<br>')
     : '';
 }
 
@@ -716,72 +747,48 @@ function firmaPng(){
 function vigia(){
   return setTimeout(function(){
     over(false); $('#btnReg').disabled = false;
-    alert('No llegó respuesta del servidor (posible mala señal).\n\nANTES de reintentar revisa la hoja ' + (MOD === 'ins' ? 'INS_ENTREGAS' : 'ENTREGAS') +
+    alert('No llegó respuesta del servidor (posible mala señal).\n\nANTES de reintentar revisa las hojas ENTREGAS e INS_ENTREGAS' +
       ': si la entrega aparece, ya quedó registrada y NO debes registrarla de nuevo (se descontaría el stock dos veces).');
   }, ESPERA_MAX);
 }
 function registrar(){
-  if (MOD === 'ins') return registrarIns();
   if (!trab) return toast('Selecciona al trabajador', 'err');
   if (!trab.rut) return toast('Al trabajador le falta el RUT: complétalo arriba', 'err');
-  if (!items.length) return toast('Agrega al menos un EPP', 'err');
+  if (!items.length) return toast('Agrega al menos un EPP o insumo', 'err');
+  var conEpp = hay('epp'), conIns = hay('ins'), area = $('#area').value;
+  if (conIns && !area) return toast('Selecciona el área: hay insumos en la entrega', 'err');
   var ent = $('#entregador').value.trim();
   if (!ent) return toast('Indica quién entrega', 'err');
-  if (!firmado) return toast('Falta la firma del trabajador', 'err');
-  var insuf = items.filter(function(it){ var e = buscarCod(it.codigo); return e && it.cant > e.stock; });
-  if (insuf.length && !confirm('Hay EPP con stock insuficiente en la planilla. ¿Registrar igual? (el stock quedará negativo)')) return;
+  if (conEpp && !firmado) return toast('Falta la firma del trabajador (hay EPP)', 'err');
+  var insuf = items.filter(function(it){ var e = buscarEnt(it.codigo); return e && it.cant > e.stock; });
+  if (insuf.length && !confirm('Hay ítems con stock insuficiente en la planilla. ¿Registrar igual? (el stock quedará negativo)')) return;
+  var linea = function(t){ return items.filter(function(i){ return i.t === t; }).map(function(i){ return {codigo: i.codigo, cantidad: i.cant}; }); };
+  var total = items.reduce(function(a, b){ return a + b.cant; }, 0);
   ls('epp_entregador', ent);
   $('#btnReg').disabled = true;
-  over(true, 'Registrando y generando PDF…');
+  over(true, conEpp ? 'Registrando y generando PDF…' : 'Registrando entrega…');
   var v = vigia();
   google.script.run.withSuccessHandler(function(r){
     clearTimeout(v); over(false); $('#btnReg').disabled = false;
     $('#formEntrega').style.display = 'none'; $('.fix').style.display = 'none';
     $('#resultado').style.display = 'block';
-    $('#rFolio').innerHTML = 'Entrega registrada<br>' + h(r.folio);
-    $('#rTxt').textContent = trab.nombre + ' · ' + items.reduce(function(a, b){ return a + b.cant; }, 0) + ' EPP';
-    if (r.url) { $('#rPdfBox').style.display = ''; prepararPdf(r.folio); } else $('#rPdfBox').style.display = 'none';
+    $('#rFolio').innerHTML = 'Entrega registrada<br>' + [r.epp && r.epp.folio, r.ins && r.ins.folio].filter(Boolean).map(h).join(' · ');
+    $('#rTxt').textContent = trab.nombre + (r.ins ? ' · ' + area : '') + ' · ' + total + ' unidades';
+    if (r.epp && r.epp.url) { $('#rPdfBox').style.display = ''; prepararPdf(r.epp.folio); } else $('#rPdfBox').style.display = 'none';
+    var al = [].concat(r.epp ? r.epp.alertas : [], r.ins ? r.ins.alertas : []);
     $('#rAlertas').innerHTML =
-      (r.pdfPendiente ? '<div class="alerta"><b>PDF pendiente.</b> La entrega quedó registrada con folio ' + h(r.folio) +
+      (r.epp && r.epp.pdfPendiente ? '<div class="alerta"><b>PDF pendiente.</b> La entrega quedó registrada con folio ' + h(r.epp.folio) +
         ', pero el PDF no se pudo generar. En la planilla: menú <b>EPP / Insumos → Regenerar PDF pendientes</b>. No registres esta entrega de nuevo.</div>' : '') +
-      (r.alertas.length ? '<div class="alerta"><b>Stock bajo el mínimo:</b><br>' + r.alertas.map(h).join('<br>') + '</div>' : '');
+      (al.length ? '<div class="alerta"><b>Stock bajo el mínimo:</b><br>' + al.map(h).join('<br>') + '</div>' : '');
     window.scrollTo(0, 0);
     cargarSilencioso();
+    if (r.ins) cargarConsumo($('#cMes').value);
   }).withFailureHandler(function(e){
     clearTimeout(v); over(false); $('#btnReg').disabled = false; toast(e.message, 'err');
-  }).registrarEntrega({
-    rut: trab.rut, items: items.map(function(i){ return {codigo: i.codigo, cantidad: i.cant}; }),
-    motivo: $('#motivo').value, obs: $('#obs').value.trim(), entregadoPor: ent, firma: firmaPng()
-  });
-}
-function registrarIns(){
-  var area = $('#area').value;
-  if (!area) return toast('Selecciona el área', 'err');
-  if (!trab) return toast('Selecciona al trabajador', 'err');
-  if (!trab.rut) return toast('Al trabajador le falta el RUT: complétalo arriba', 'err');
-  if (!items.length) return toast('Agrega al menos un insumo', 'err');
-  var ent = $('#entregador').value.trim();
-  if (!ent) return toast('Indica quién entrega', 'err');
-  var insuf = items.filter(function(it){ var e = buscarCod(it.codigo); return e && it.cant > e.stock; });
-  if (insuf.length && !confirm('Hay insumos con stock insuficiente en la planilla. ¿Registrar igual? (el stock quedará negativo)')) return;
-  ls('epp_entregador', ent);
-  $('#btnReg').disabled = true;
-  over(true, 'Registrando entrega…');
-  var v = vigia();
-  google.script.run.withSuccessHandler(function(r){
-    clearTimeout(v); over(false); $('#btnReg').disabled = false;
-    $('#formEntrega').style.display = 'none'; $('.fix').style.display = 'none';
-    $('#resultado').style.display = 'block';
-    $('#rFolio').innerHTML = 'Entrega registrada<br>' + h(r.folio);
-    $('#rTxt').textContent = area + ' · ' + trab.nombre + ' · ' + items.reduce(function(a, b){ return a + b.cant; }, 0) + ' unidades';
-    $('#rAlertas').innerHTML = r.alertas.length ? '<div class="alerta"><b>Stock bajo el mínimo:</b><br>' + r.alertas.map(h).join('<br>') + '</div>' : '';
-    window.scrollTo(0, 0);
-    cargarSilencioso(); cargarConsumo($('#cMes').value);
-  }).withFailureHandler(function(e){
-    clearTimeout(v); over(false); $('#btnReg').disabled = false; toast(e.message, 'err');
-  }).registrarInsumos({
-    area: area, rut: trab.rut, items: items.map(function(i){ return {codigo: i.codigo, cantidad: i.cant}; }),
-    obs: $('#obs').value.trim(), entregadoPor: ent
+  }).registrarTurno({
+    rut: trab.rut, area: area, itemsEpp: linea('epp'), itemsIns: linea('ins'),
+    motivo: conEpp ? $('#motivo').value : '', obs: $('#obs').value.trim(), entregadoPor: ent,
+    firma: conEpp ? firmaPng() : ''
   });
 }
 function cargarSilencioso(){ google.script.run.withSuccessHandler(function(d){ DB = d; renderAreas(); renderStock(); renderEtiq(); }).getDatos(); }
@@ -840,7 +847,7 @@ function compartirPdf(){
   navigator.share({files: [f], title: 'Entrega EPP ' + PDF.folio}).catch(function(){});
 }
 function nuevaEntrega(){
-  trab = null; items = []; $('#obs').value = ''; $('#motivo').selectedIndex = 0;
+  trab = null; items = []; $('#obs').value = ''; $('#motivo').selectedIndex = 0; $('#area').value = '';
   $('#resultado').style.display = 'none'; $('#formEntrega').style.display = 'block'; $('.fix').style.display = 'block';
   $('#rPdfBox').style.display = ''; PDF = null; PDF_FOLIO = ''; $('#trabNuevo').style.display = 'none';
   renderTrab(); renderItems(); firmado = false; ajustarFirma(); window.scrollTo(0, 0);
@@ -878,7 +885,7 @@ function onScan(txt){
     origenRut = 'cédula escaneada'; rutLeido(rut);
   }
   else if (scanMode === 'entrega') {
-    if (!buscarCod(txt)) return noReg(txt);   // código desconocido: avisa y sigue escaneando
+    if (!buscarEnt(txt)) return toast('Código no registrado: ' + txt, 'err');   // desconocido: avisa y sigue escaneando
     scanListo = true; agregar(txt); cerrarScanner();
   }
   else {
